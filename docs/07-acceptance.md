@@ -60,3 +60,13 @@ Review network bodies for real names and addresses before sharing the folder.
 - [ ] A date-picker field reports `entry.mode: "widget"`
 - [ ] Selecting a file records `accept` and `multiple` but no filename anywhere
 - [ ] Pausing, browsing, then resuming produces no transition edge across the gap
+
+## Redaction checks (docs/11)
+- [ ] Recapture a login page with an identifier field labelled like
+      `User ID, CIN, LLPIN, FCRN or Email ID`. It appears with a populated `id`,
+      `selectors` and `maxLength`, and **is not** marked `redactedEntirely`
+- [ ] The Password and OTP fields appear with `id`, `selectors` and `visible: true`,
+      and **are** marked `redactedEntirely`, with no `value` key at all
+- [ ] A field labelled `Pin code` is captured normally
+- [ ] `flow-map.json` and `selectors.json` both contain the credential fields
+- [ ] `SUMMARY.md` reports the redacted-control count

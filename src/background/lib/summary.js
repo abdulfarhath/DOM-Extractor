@@ -31,12 +31,13 @@ export function buildSummary(states, map, meta, netCount) {
   const distinctPaths = new Set(states.map((s) => s.pathname));
   const loggedIn = states.filter((s) => s.authHints && s.authHints.loggedIn === true).length;
   out.push(`- Framework: **${map.framework}**${states[0] && states[0].framework.version ? ` ${states[0].framework.version}` : ''}${states.some((s) => s.usesShadowDom) ? ', uses shadow DOM' : ''}`);
-  out.push(`- **${states.length}** page states across **${distinctPaths.size}** distinct paths; **${map.controls.length}** unique controls; **${map.lists.length}** list patterns`);
+  const humanOnly = map.controls.filter((c) => c.redactedEntirely).length;
+  out.push(`- **${states.length}** page states across **${distinctPaths.size}** distinct paths; **${map.controls.length}** unique controls, of which **${humanOnly}** redacted (human-only); **${map.lists.length}** list patterns`);
   out.push(`- **${map.transitions.length}** transitions, **${map.dependencies.length}** dependency findings, **${netCount}** network calls in \`network.har\``);
   out.push(`- Logged-in signal on ${loggedIn} of ${states.length} states (password fields, autocomplete tokens and login/logout paths; English text only at low confidence)`);
   out.push(`- Redaction packs: ${meta.packs.join(', ')}`);
   out.push('');
-  out.push('Control values were replaced with `<n chars>` at capture time. Passwords, OTPs, captcha and similar were never recorded beyond their existence (`redactedEntirely`).');
+  out.push('Control values were replaced with `<n chars>` at capture time. Passwords, OTPs, captcha and similar keep their identity, position and selectors but carry no value at all (`redactedEntirely`); they are for a human to fill.');
   out.push('');
 
   const d = meta.degraded;

@@ -47,7 +47,9 @@
  */
 
 /**
- * A single form control or ARIA widget. `value` is already redacted.
+ * A single form control or ARIA widget. `value` is already redacted, and is
+ * absent altogether on credential-shaped controls (docs/11 F2): they keep
+ * every structural field, carry `redactedEntirely: true`, and never a length.
  * @typedef {Object} ControlRecord
  * @property {number} index
  * @property {string} tag
@@ -77,7 +79,8 @@
  * @property {boolean} visible
  * @property {BoundingBox} boundingBox
  * @property {string} classes
- * @property {string} value   always `<n chars>` or ''
+ * @property {string} [value]   `<n chars>` or ''; absent when redactedEntirely
+ * @property {boolean} redactedEntirely   content never recorded; a human fills this control
  * @property {string|null} group
  * @property {number|null} optionCount
  * @property {SelectOption[]|null} options
@@ -87,19 +90,8 @@
  * @property {SelectorSet} selectors
  */
 
-/**
- * A credential-shaped control (docs/05 rule 3). Existence only.
- * @typedef {Object} RedactedControlRecord
- * @property {number} index
- * @property {string} tag
- * @property {string} type
- * @property {string} key
- * @property {string} label
- * @property {LabelSource} labelSource
- * @property {true} redactedEntirely
- */
-
-/** @typedef {ControlRecord|RedactedControlRecord} AnyControlRecord */
+/** Kept as an alias so older call sites read the same; every control is a full record now. */
+/** @typedef {ControlRecord} AnyControlRecord */
 
 /**
  * @typedef {Object} ButtonRecord
@@ -395,6 +387,7 @@
  * @property {string[]} dependsOn
  * @property {string[]} affects
  * @property {string[]} collidesWith   A7
+ * @property {boolean} redactedEntirely   human-only; never bind a data source (docs/11)
  * @property {null} sourceField
  * @property {string} notes
  */

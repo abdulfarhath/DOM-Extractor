@@ -22,7 +22,9 @@ const CONSTRAINTS = [
   '> rather than storing credentials; leave login, OTP, captcha, payment,',
   '> signing and final submission to the human; never bypass a security control;',
   '> verify each selector at runtime and fail loudly rather than silently filling',
-  '> the wrong field; and respect the site\'s terms of use.',
+  '> the wrong field; and respect the site\'s terms of use. Controls marked',
+  '> `redactedEntirely` in flow-map.json are for the human to fill and must never',
+  '> be automated.',
 ];
 
 /**
@@ -47,7 +49,8 @@ export function buildBrief(states, map, meta, net) {
   out.push('');
   out.push(`- **Origin:** \`${map.origin}\``);
   out.push(`- **Framework:** ${map.framework}${fw && fw.framework.version ? ` ${fw.framework.version}` : ''} (${fw ? fw.framework.confidence : 'unknown'} confidence)${usesShadow ? ' — uses shadow DOM, see §2' : ''}`);
-  out.push(`- **States:** ${states.length} across ${new Set(states.map((s) => s.pathname)).size} paths; **controls:** ${map.controls.length}; **list patterns:** ${map.lists.length}`);
+  const humanOnly = map.controls.filter((c) => c.redactedEntirely).length;
+  out.push(`- **States:** ${states.length} across ${new Set(states.map((s) => s.pathname)).size} paths; **controls:** ${map.controls.length}${humanOnly ? ` (${humanOnly} human-only, \`redactedEntirely\`)` : ''}; **list patterns:** ${map.lists.length}`);
   const authConf = states.map((s) => (s.authHints ? s.authHints.confidence : 'low'));
   const bestConf = authConf.includes('high') ? 'high' : authConf.includes('medium') ? 'medium' : 'low';
   out.push(`- **Session auth:** ${loggedIn && !loggedOut ? 'looked logged in throughout' : loggedIn ? `logged in on ${loggedIn} states, logged out on ${loggedOut}` : loggedOut ? 'looked logged out' : 'unknown (no auth signal seen)'} — ${bestConf} confidence, from password fields / autocomplete tokens / login-logout paths${bestConf === 'low' ? ' / English button text' : ''}`);
@@ -110,11 +113,11 @@ export function buildBrief(states, map, meta, net) {
     out.push('| key | label | type | required | entry | primary selector | stability |');
     out.push('|---|---|---|---|---|---|---|');
     for (const c of controls) {
-      const entry = c.entry ? (c.entry.mode === 'widget' ? `widget: ${c.entry.widgetKind || '?'}` : c.entry.mode) : '';
+      const entry = c.redactedEntirely ? '**HUMAN** (redacted)' : c.entry ? (c.entry.mode === 'widget' ? `widget: ${c.entry.widgetKind || '?'}` : c.entry.mode) : '';
       out.push(`| \`${cell(c.key)}\` | ${cell(trunc(c.label, 50))} | ${c.type} | ${c.required ? 'yes' : ''} | ${entry} | \`${cell(c.selectors.primary)}\`${c.selectors.shadowPath.length ? ' ⧉' : ''} | ${c.selectors.stability} |`);
     }
     out.push('');
-    out.push('⧉ = inside shadow roots; see `shadowPath` in `flow-map.json`.');
+    out.push('⧉ = inside shadow roots; see `shadowPath` in `flow-map.json`. **HUMAN** = `redactedEntirely`: the selector is here so the automation can wait on it, never fill it.');
     out.push('');
   }
 

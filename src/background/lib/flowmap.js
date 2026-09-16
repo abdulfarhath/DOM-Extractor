@@ -34,7 +34,7 @@ export function findVaryingIds(states) {
   const groups = new Map();
   for (const s of states) {
     for (const c of s.controls) {
-      if ('redactedEntirely' in c || !c.id) continue;
+      if (!c.id) continue;
       if (!c.formControlName && !c.name && !c.label) continue;
       const g = `${s.pathname}|${c.formControlName}|${c.name}|${norm(c.label)}|${c.type}`;
       let ids = groups.get(g);
@@ -111,8 +111,9 @@ function newEntry(c, key, stateId, note, varying) {
     dependsOn: [],
     affects: [],
     collidesWith: [],
+    redactedEntirely: !!c.redactedEntirely,
     sourceField: null,
-    notes: [c.selectors.notes, selNote, note].filter(Boolean).join('; '),
+    notes: [c.selectors.notes, selNote, note, c.redactedEntirely ? 'redactedEntirely: human fills this; never bind a data source' : ''].filter(Boolean).join('; '),
   };
   addAlts(e, c);
   return e;
@@ -149,6 +150,12 @@ function mergeInto(e, c, stateId, varying) {
   if (STABILITY_RANK.indexOf(selectors.stability) < STABILITY_RANK.indexOf(e.selectors.stability)) e.selectors = selectors;
   if (note && !e.notes.includes('id varies')) e.notes = [e.notes, note].filter(Boolean).join('; ');
   if (c.entry && e.entry && e.entry.mode === 'unknown' && c.entry.mode !== 'unknown') e.entry = c.entry;
+  // Once a credential, always a credential: the flag never downgrades on merge.
+  if (c.redactedEntirely && !e.redactedEntirely) {
+    e.redactedEntirely = true;
+    e.options = null;
+    e.notes = [e.notes, 'redactedEntirely: human fills this; never bind a data source'].filter(Boolean).join('; ');
+  }
 }
 
 /**
@@ -173,9 +180,10 @@ export function buildFlowMap(states, deps, transitions, timeline, origin) {
   // ---- controls, A7 collision-aware
   /** @type {Map<string, Array<{ c: ControlRecord, stateId: string, pathname: string }>>} */
   const byKey = new Map();
+  // Credential controls are included (docs/11): a consumer needs their
+  // selectors to leave them to the human and to wait for what follows.
   for (const s of states) {
     for (const c of s.controls) {
-      if ('redactedEntirely' in c) continue;
       const k = effectiveKey(c, varying);
       const arr = byKey.get(k) || [];
       arr.push({ c, stateId: s.id, pathname: s.pathname });

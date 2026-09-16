@@ -84,7 +84,11 @@ dialog, so the README no longer asks the user to change it.
 ## ControlRecord
 
 Per `docs/02`. `key` is the identity used in signatures and edges. `value` is
-always redacted. `selectors` always present.
+always redacted, and **absent** when `redactedEntirely: true` (docs/11 F2):
+credential-shaped controls keep every structural field — id, selectors,
+`visible`, `boundingBox`, constraints — and carry no value, not even a length.
+`selectors` always present. Flow-map controls carry the same flag so nothing
+binds a data source to them.
 
 ## List structures
 

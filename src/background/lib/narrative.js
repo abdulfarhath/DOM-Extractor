@@ -131,10 +131,7 @@ export function attentionList(states, map) {
     /** @type {Map<string, number>} */
     const idCounts = new Map();
     for (const c of s.controls) {
-      if ('redactedEntirely' in c) {
-        redacted.push(`state ${s.seq}: ${c.type}${c.label ? ` "${cell(c.label)}"` : ''}`);
-        continue;
-      }
+      if (c.redactedEntirely) redacted.push(`state ${s.seq}: \`${cell(c.key)}\` (${c.type}${c.label ? `, "${cell(c.label)}"` : ''}) — \`${cell(c.selectors.primary)}\``);
       if (c.id) idCounts.set(c.id, (idCounts.get(c.id) || 0) + 1);
       if (!c.selectors.unique) nonUnique.push(`state ${s.seq}: \`${cell(c.key)}\` — \`${cell(c.selectors.primary)}\`${c.selectors.uniqueInForm ? ' (unique within its form)' : ''}`);
     }
@@ -150,7 +147,7 @@ export function attentionList(states, map) {
   out.push({ title: 'Widget-backed controls (do not type into these)', items: map.controls.filter((c) => c.entry && c.entry.mode === 'widget').map((c) => `\`${cell(c.key)}\` — ${c.entry ? `${c.entry.widgetKind || 'widget'}: ${cell(c.entry.evidence)}` : ''}`) });
   out.push({ title: 'Entry mode unknown', items: map.controls.filter((c) => c.entry && c.entry.mode === 'unknown').map((c) => `\`${cell(c.key)}\` — ${c.entry ? cell(c.entry.evidence) : ''}`) });
   out.push({ title: 'Regions the capture could not see into (closed shadow roots)', items: dedupe(opaque) });
-  out.push({ title: 'Credential-shaped controls, structure only', items: dedupe(redacted) });
+  out.push({ title: 'Redacted controls — human-only, never automate (redactedEntirely)', items: dedupe(redacted) });
 
   const dangerButtons = new Set();
   for (const s of states) for (const b of s.buttons) if (b.danger) dangerButtons.add(`"${cell(b.text)}" — \`${cell(b.selector)}\``);

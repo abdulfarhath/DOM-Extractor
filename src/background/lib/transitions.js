@@ -77,7 +77,7 @@ export function buildTransition(from, to, netBetween) {
 
   for (const [k, cb] of b) {
     const ca = a.get(k);
-    if (!ca || 'redactedEntirely' in ca || 'redactedEntirely' in cb) continue;
+    if (!ca || ca.redactedEntirely || cb.redactedEntirely) continue;
     if (!ca.options && !cb.options) continue;
     if (JSON.stringify(ca.options) !== JSON.stringify(cb.options)) optionsChanged.push({ key: k, before: ca.options, after: cb.options });
   }

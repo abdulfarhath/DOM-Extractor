@@ -168,3 +168,17 @@ adding a question.
 - **Default chosen:** keep the extras; they are all additive.
 - **Alternative:** strip to the literal schema at export.
 - **Answer:** Confirmed — docs/03 wins; docs/02 now says `triggerAt`. Extras kept.
+
+## Q16 — docs/11 F1: the camel-case rule cannot be dropped
+- **Context:** docs/11 says the lookbehind `(?<![a-z])pin` "covers" camel-case
+  and the separate `[a-z]Pin` rule should go. Under the `i` flag the
+  lookbehind rejects *any* letter, so `userPin` (listed in the same doc as
+  "credential = yes") stops matching; and without a trailing guard `pinned`
+  (listed as "no") matches.
+- **Default chosen:** `/captcha|otp|passw|passcode|mpin|secret|token|cvv|(?<![a-z])pin(?![a-z]|[\s_-]*code)/i`
+  plus the case-sensitive `/[a-z]Pin(?![A-Za-z]|[\s_-]*[Cc]ode)/`. Every row of
+  the docs/11 table passes; the table lives as a comment above the constant.
+  `security.?code` from docs/05 was dropped as docs/11 lists the pattern in
+  full without it.
+- **Alternative:** accept the doc's single pattern and its two misses.
+- **Answer:**

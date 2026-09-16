@@ -23,13 +23,23 @@ samples, and anything rendered in the panel. No setting turns this off.
 
 Emit no value, and no length, for any control where `type` is `password`, or
 where `id`, `name`, binding attribute, `autocomplete`, or label matches
-`/captcha|otp|passw|secret|token|mpin|cvv|passcode|security.?code|(?:^|[^a-z])pin(?![\s_-]*code)/i`
-or the case-sensitive `/[a-z]Pin(?![\s_-]*[Cc]ode)/`.
+`/captcha|otp|passw|passcode|mpin|secret|token|cvv|(?<![a-z])pin(?![a-z]|[\s_-]*code)/i`
+or the case-sensitive `/[a-z]Pin(?![A-Za-z]|[\s_-]*[Cc]ode)/` (docs/11 F1).
+The lookbehind keeps `LLPIN`, `CIN`-style identifier fields, `spinner`,
+`pinned` and every postal `PIN code` spelling out; the camel-case pattern
+brings `userPin` / `txnPin` back in. The case table in
+`src/content/lib/redact.js` is the specification.
 
-Record `{ type, label, redactedEntirely: true }` so structure is known and content
-is not. The `pin` clause is guarded on both sides so postal PIN code fields
-(`pinCode`, `Pin code`, `pin_code`) are still captured normally while `PIN`,
-`userPin`, `txnPin` and `mpin` are not; `spinner` and `shipping` never match.
+Record the **full ControlRecord** for such a control — `index`, `tag`, `type`,
+`role`, `key`, `id`, `name`, `formControlName`, `dataAttrs`, `label`,
+`labelSource`, `placeholder`, `ariaLabel`, `required`, `maxLength`,
+`minLength`, `pattern`, `disabled`, `readOnly`, `visible`, `boundingBox`,
+`classes`, `selectors`, `entry`, `group` — with `redactedEntirely: true` and
+**no `value` key at all**: not `<n chars>`, not `<redacted>`; a password's
+length is itself sensitive. A credential `select` also drops `options` and
+`optionCount`. Nothing about a field's identity is sensitive; only its content
+is, and a consumer needs the selector to leave the field to the human and to
+wait for the state that follows (docs/11 F2).
 
 Hidden inputs appear in the DOM snapshot as `value="<hidden>"` — CSRF and session
 tokens are never stored.

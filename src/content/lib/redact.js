@@ -4,13 +4,27 @@
   window.__FP = window.__FP || {};
 
   /**
-   * Rule 3 — control shapes whose content never reaches storage. `pin` must
-   * not sit inside another word (spinner, shipping) and must not be followed
-   * by "code", so postal PIN code fields stay ordinary controls. Camel-case
-   * `userPin` / `txnPin` is caught by the second, case-sensitive pattern.
+   * Rule 3 — control shapes whose content never reaches storage (docs/11 F1).
+   *
+   * `pin` may not be preceded or followed by a letter, and may not be followed
+   * by "code". The lookbehind is case-insensitive, so `LLPIN`, `spinner`,
+   * `pinned` never match; but that same lookbehind also rejects camel-case
+   * `userPin`, which docs/11 lists as a credential — hence the second,
+   * case-sensitive pattern for a lowercase letter followed by `Pin`.
+   *
+   * These cases are the specification; an edit that breaks one is a regression:
+   *
+   *   credential = no
+   *     LLPIN · "User ID, CIN, LLPIN, FCRN or Email ID"
+   *     pinCode · "Pin code" · Pincode · pin-code · "PIN Code"
+   *     spinner · shipping · pinned · userPinned · address1
+   *   credential = yes
+   *     PIN · Pin · userPin · txnPin · user_pin · "login PIN" · PIN2
+   *     mpin · MPIN
+   *     otp · "Enter the OTP" · captcha · cvv · Password · passcode
    */
-  const CREDENTIAL_RE = /captcha|otp|passw|secret|token|mpin|cvv|passcode|security.?code|(?:^|[^a-z])pin(?![\s_-]*code)/i;
-  const CAMEL_PIN_RE = /[a-z]Pin(?![\s_-]*[Cc]ode)/;
+  const CREDENTIAL_RE = /captcha|otp|passw|passcode|mpin|secret|token|cvv|(?<![a-z])pin(?![a-z]|[\s_-]*code)/i;
+  const CAMEL_PIN_RE = /[a-z]Pin(?![A-Za-z]|[\s_-]*[Cc]ode)/;
 
   /** Packs enabled for this document; the worker decides, the flags message tells us. */
   /** @type {string[]} */
@@ -28,7 +42,8 @@
   };
 
   /**
-   * Rule 3 — true when the control must be recorded only as redactedEntirely.
+   * Rule 3 — true when the control's content must never be recorded. The
+   * control itself is still recorded in full (docs/11 F2); only `value` goes.
    * @param {Element} el
    * @param {string} label
    * @returns {boolean}

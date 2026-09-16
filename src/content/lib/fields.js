@@ -1,6 +1,7 @@
 /* Control inventory — docs/02 "Control-level capture", docs/10 A1 (shadow DOM)
-   and A6 (entry hints, file inputs). One ControlRecord per native control or
-   ARIA widget, or a bare RedactedControlRecord for credential-shaped ones.
+   and A6 (entry hints, file inputs), docs/11 F2. One full ControlRecord per
+   native control or ARIA widget; credential-shaped ones keep every structural
+   field and lose only their value.
    Also the deep-DOM helpers every other lib uses to see through open shadow
    roots. Classic script: exposes window.__FP.fields. */
 (() => {
@@ -302,11 +303,9 @@
     const type = controlType(el, tag, role);
     const { label, labelSource } = ns.labels.resolveLabel(el);
     const key = keyFor(el, label, type, index, framework);
-
-    // Rule 3: credentials never produce a full record.
-    if (ns.redact.isCredentialControl(el, label)) {
-      return { index, tag, type, key: ns.redact.scrubText(key), label: ns.redact.scrubText(label), labelSource, redactedEntirely: true };
-    }
+    // Rule 3 / docs/11 F2: a credential keeps its identity, position and
+    // selectors; only its content (value, and options for a select) goes.
+    const credential = ns.redact.isCredentialControl(el, label);
 
     const rect = el.getBoundingClientRect();
     const input = /** @type {HTMLInputElement} */ (el);
@@ -351,8 +350,7 @@
       visible,
       boundingBox: { x: Math.round(rect.x), y: Math.round(rect.y), w: Math.round(rect.width), h: Math.round(rect.height) },
       classes: (typeof el.className === 'string' ? el.className : '').slice(0, MAX_CLASSES),
-      // A6: a file input's value is a path — credential-class, existence only.
-      value: isFile ? '' : ns.redact.redactValue(rawValue(el, tag)),
+      redactedEntirely: credential,
       group: isCheckable ? el.getAttribute('name') || el.getAttribute('aria-labelledby') || null : null,
       optionCount: null,
       options: null,
@@ -362,7 +360,16 @@
       selectors: ns.selectors.buildSelectors(el, label, framework),
     };
 
-    if (tag === 'select') {
+    // `value` is set only for non-credential controls, so a redacted record has
+    // no value key at all — not even a length. A file input's value is a path
+    // (A6): existence only, recorded as ''.
+    if (!credential) out.value = isFile ? '' : ns.redact.redactValue(rawValue(el, tag));
+
+    if (credential) {
+      // Option text on a credential select could carry the secret.
+      out.optionCount = null;
+      out.options = null;
+    } else if (tag === 'select') {
       const sel = /** @type {HTMLSelectElement} */ (el);
       out.optionCount = sel.options.length;
       out.options = Array.from(sel.options)

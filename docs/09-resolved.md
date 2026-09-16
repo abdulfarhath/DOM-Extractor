@@ -11,10 +11,14 @@ state is the parent page and would mislead.
 Keep `address1`. Additionally, when the same pathname is captured more than once,
 compare ids at export time and demote any that differ between captures — that is
 the only real evidence of variance available.
+_Note: the second-round Q2 (credential regex) is superseded by docs/11 F1._
 
 **Q3 — `pin` matching postal codes.** Changed: use
 `\bpin\b(?!\s*code)` and add `cvv`, `passcode`, `security code` to the credential
 pattern. Over-redacting an address field loses useful structure for no safety gain.
+_Superseded by docs/11 F1: the pattern is now
+`(?<![a-z])pin(?![a-z]|[\s_-]*code)` plus a case-sensitive camel-case rule; see
+`src/content/lib/redact.js` for the case table._
 
 **Q4 — Bounding boxes.** Confirmed viewport coordinates, and additionally store
 `scrollX`/`scrollY` on the state so document coordinates can be derived. Cheap,

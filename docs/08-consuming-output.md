@@ -35,7 +35,9 @@ Written so someone who has never seen the site can reason about it.
    > rather than storing credentials; leave login, OTP, captcha, payment,
    > signing and final submission to the human; never bypass a security control;
    > verify each selector at runtime and fail loudly rather than silently filling
-   > the wrong field; and respect the site's terms of use.
+   > the wrong field; and respect the site's terms of use. Controls marked
+   > `redactedEntirely` in flow-map.json are for the human to fill and must never
+   > be automated.
 
 10. **What I want automated** — an empty section with a prompt line, for the user
     to fill in before handing the folder over.

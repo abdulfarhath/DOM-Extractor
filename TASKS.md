@@ -323,3 +323,39 @@ works through `docs/07-acceptance.md` and answers `QUESTIONS.md` (Q1–Q15).
   deflated into the archive (the `.html.gz` store rule in `zip.js` is there
   for a future switch); no zip64.
 - `npm run check`: pass
+
+## 2026-09-16 — Revision 3 (docs/11 redaction fixes)
+- Built:
+  - F1 credential pattern replaced: `(?<![a-z])pin(?![a-z]|[\s_-]*code)` with
+    the docs/11 alternations, plus the case-sensitive camel-case rule that the
+    doc's own table still needs (Q16). The 27-row case table is a comment
+    above the constant in `redact.js` and every row was checked in a scratch
+    run. `LLPIN`, `CIN`-style labels, `pinned`, `spinner` and every PIN-code
+    spelling pass; `PIN`, `userPin`, `user_pin`, `mpin`, `otp`, `cvv`,
+    `Password` redact.
+  - F2 credential controls now emit the full ControlRecord — id, name,
+    binding, data attrs, label, constraints, `visible`, `boundingBox`,
+    `classes`, `selectors`, `entry`, `group` — with `redactedEntirely: true`
+    and **no `value` key**; credential selects also drop `options` /
+    `optionCount`. `RedactedControlRecord` removed; `ControlRecord.value` is
+    optional and `redactedEntirely` is a boolean on every control.
+  - F3 follows: `visible` and `boundingBox` are computed for them like any
+    other control.
+  - Downstream: flow-map includes redacted controls with
+    `redactedEntirely: true` and a note (never downgraded on merge);
+    `selectors.json` carries their selectors; skeleton emits a `// HUMAN:`
+    line instead of a fill; brief constraints block gains the human-only
+    sentence (docs/08 updated to keep it verbatim), §1 counts human-only
+    controls, §4 marks them **HUMAN**; summary header reports the redacted
+    count and the attention list section is now "Redacted controls —
+    human-only" with selectors.
+  - Docs: docs/05 rule 3 rewritten (regex + keep/drop lists), docs/09 Q2/Q3
+    annotated as superseded, docs/03 ControlRecord note, docs/07 redaction
+    checks appended.
+- Files: `src/content/lib/redact.js`, `src/content/lib/fields.js`,
+  `src/shared/schema.js`, `src/background/lib/{flowmap,transitions,narrative,
+  skeleton,brief,summary}.js`, `docs/03-output-schema.md`,
+  `docs/05-privacy.md`, `docs/07-acceptance.md`, `docs/08-consuming-output.md`,
+  `docs/09-resolved.md`, `QUESTIONS.md` (+Q16).
+- Left out: nothing.
+- `npm run check`: pass

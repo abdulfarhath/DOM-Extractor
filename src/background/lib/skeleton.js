@@ -36,6 +36,9 @@ function callFor(c, keyExpr) {
   const meta = [c.type, c.required ? 'required' : '', c.maxLength != null ? `maxLength ${c.maxLength}` : '', c.options ? `${c.options.length} options` : '', c.entry && c.entry.mode === 'widget' ? `WIDGET: ${c.entry.widgetKind || c.entry.evidence}` : '']
     .filter(Boolean)
     .join(', ');
+  if (c.redactedEntirely) {
+    return `  // HUMAN: ${keyExpr} is redactedEntirely${c.label ? ` — "${oneLine(c.label)}"` : ''} (${c.type}). Never fill this; wait for the human, then continue.`;
+  }
   let call;
   if (c.type === 'select') call = `await page.selectOption(${keyExpr}, ${data});`;
   else if (c.type === 'checkbox' || c.type === 'radio' || c.type === 'switch') call = `await page.check(${keyExpr});`;
