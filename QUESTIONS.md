@@ -24,7 +24,7 @@ adding a question.
 - **Alternative:** ES module packs consumed only by the worker, with bodies
   scrubbed in the worker instead of at capture — rejected because rule 5 says
   redaction happens at capture time.
-- **Answer:**
+- **Answer:** Confirmed as built.
 
 ## Q2 — Camel-case credential names slip past `\bpin\b`
 - **Context:** docs/05 rule 3 regex is fixed. `userPin`, `txnPin`, `mpin` do not
@@ -33,7 +33,7 @@ adding a question.
   `otp`, `captcha`, `cvv` etc. still match anywhere in the token.
 - **Alternative:** add a case-sensitive `/[a-z]Pin(?![\s_-]*[Cc]ode)/` and
   `mpin` — the first build had this.
-- **Answer:**
+- **Answer:** Changed — validated regex `/captcha|otp|passw|secret|token|mpin|cvv|passcode|security.?code|(?:^|[^a-z])pin(?![\s_-]*code)/i` plus case-sensitive `/[a-z]Pin(?![\s_-]*[Cc]ode)/` (`security.?code` from docs/05 retained as an independent alternation). Done in `redact.js`; docs/05 updated.
 
 ## Q3 — What "demote `#id` if it looks generated" means on React/Vue
 - **Context:** docs/02 selector ranking. Ids that match the generated-id
@@ -43,7 +43,7 @@ adding a question.
   three characters is moved below `[name]`, with a note. It stays a candidate.
 - **Alternative:** reject such ids outright on React/Vue; or ignore the
   clause because the base rejection already covers it.
-- **Answer:**
+- **Answer:** Changed — demote on generated shapes only. Known prefixes, separator-then-digits, UUID and hash are already rejected outright; the remaining shape, 8+ char random alphanumeric with non-trailing digits (`looksRandomAlnum`), is demoted below `[name]` on React/Vue. `address1`, `dob2`, `field2024` stay authored. Done in `selectors.js`.
 
 ## Q4 — One key for signatures, edges and the flow map
 - **Context:** docs/02 now puts `key` on every ControlRecord as "the identity
@@ -54,7 +54,7 @@ adding a question.
   omitted; `altKeys` on the flow map still lists every other identifier seen.
 - **Alternative:** keep a separate signature key (`id || name || binding ||
   label`) and the join table, at the cost of two identities per control.
-- **Answer:**
+- **Answer:** Confirmed as built.
 
 ## Q5 — Shadow-root traversal order in the control list
 - **Context:** `queryDeep` returns light-DOM matches first, then each host's
@@ -64,7 +64,7 @@ adding a question.
   the signature is order-sensitive but consistent across captures.
 - **Alternative:** a full TreeWalker that interleaves shadow content at the
   host's position, at some cost per capture.
-- **Answer:**
+- **Answer:** Changed — `state.orderApproximate: true` whenever shadow roots are present; AUTOMATION-BRIEF.md §2 explains that `index` is not visual/tab order on those states and points at `boundingBox` + `scroll`; SUMMARY.md inventory notes it. Done in `schema.js`, `capture.js`, `brief.js`, `summary.js`.
 
 ## Q6 — Pagination "next"/"prev" detection uses attribute and class names
 - **Context:** docs/02 forbids English-only assumptions. `[rel=next]`,
@@ -75,7 +75,7 @@ adding a question.
   still recorded with `style` so a consumer can inspect it.
 - **Alternative:** also accept a single-arrow glyph (`›`, `→`, `»`) as the
   next control when nothing else matches.
-- **Answer:**
+- **Answer:** Confirmed as built — the consecutive-integer sibling run fallback exists in `lists.js` `collectPagination` (parents whose child texts are 1, 2, 3…).
 
 ## Q7 — Auth-hint word list
 - **Context:** docs/02 `authHints` matches "login/logout/sign affordances" by
@@ -84,7 +84,7 @@ adding a question.
   equivalents (abmelden, déconnexion, cerrar sesión, sair …). `loggedIn` is
   `null` with an explanation when nothing matches, never a guess.
 - **Alternative:** hrefs only, no text matching at all.
-- **Answer:**
+- **Answer:** Changed — non-English word list dropped. Order now: `input[type=password]` or `autocomplete` current-password/username/one-time-code → logged out, high; login/logout/signin/signout segments in the page path or link hrefs → medium; English `log in`/`log out`/`sign in`/`sign out` text → low. `AuthHints` gained `confidence`. Done in `capture.js`, `schema.js`, brief/summary.
 
 ## Q8 — `change` on text inputs is ignored
 - **Context:** docs/02 lists "Value change — capture-phase change listener —
@@ -95,7 +95,7 @@ adding a question.
   and elements carrying a `role`. Text fields still surface through the
   signature/errors when they reveal something.
 - **Alternative:** honour every `change` and rely on dedupe.
-- **Answer:**
+- **Answer:** Confirmed as built.
 
 ## Q9 — Net entries are gated on the sending frame's origin
 - **Context:** docs/05 says never capture on a non-consented origin. A
@@ -105,7 +105,7 @@ adding a question.
   consented page are recorded; calls made by a non-consented iframe are not.
 - **Alternative:** also require the request URL's origin to be consented,
   which would drop most API traffic on split front/back-end sites.
-- **Answer:**
+- **Answer:** Confirmed as built.
 
 ## Q10 — Quota estimate as the 80% signal
 - **Context:** A5 says degrade at 80% of estimated usage. With
@@ -115,7 +115,7 @@ adding a question.
   add; a failed write also steps the ladder. No artificial ceiling.
 - **Alternative:** a fixed soft ceiling (e.g. 1 GB of `fp:` data) tracked by
   summing stored sizes.
-- **Answer:**
+- **Answer:** Confirmed with change — `navigator.storage.estimate()` no longer consulted; any failed write (states, net, transitions, deps, screenshots) steps the degradation ladder and retries once. `TIMING.QUOTA_DEGRADE_AT` removed. Done in `store.js`.
 
 ## Q11 — Multi-origin export layout
 - **Context:** docs/03 says "grouped by origin when a session spans more than
@@ -126,7 +126,7 @@ adding a question.
   origin in `<host>/`.
 - **Alternative:** a single package with origin-prefixed stems and one merged
   flow map.
-- **Answer:**
+- **Answer:** Confirmed as built.
 
 ## Q12 — `playwright-skeleton.ts` declares its own `Page` type
 - **Context:** docs/07 says the skeleton must type-check as TypeScript. An
@@ -136,7 +136,7 @@ adding a question.
   with a comment showing the one-line swap to the real import.
 - **Alternative:** the real import and a note in the brief that it needs
   `npm i -D @playwright/test` to check.
-- **Answer:**
+- **Answer:** Confirmed as built.
 
 ## Q13 — Offscreen document is created per export and closed after
 - **Context:** docs/09 Q14 adds the `offscreen` permission for blob URLs.
@@ -146,14 +146,14 @@ adding a question.
   next, which also drives the Q15 prompt detection.
 - **Alternative:** keep the document alive for the session; fire downloads
   without waiting and revoke on a timer.
-- **Answer:**
+- **Answer:** Confirmed as built.
 
 ## Q14 — docs/06 P0 permission list vs docs/09 Q14
 - **Context:** docs/06 lists five permissions; docs/09 Q14 requires
   `offscreen`. docs/09 is the later, resolved decision.
 - **Default chosen:** `offscreen` added; the other five unchanged.
 - **Alternative:** none — flagged only so the manifest diff is expected.
-- **Answer:**
+- **Answer:** Confirmed — docs/09 wins; docs/06 P0 permission list now includes `offscreen`.
 
 ## Q15 — Verification gaps against docs/02, 03, 08
 - **Context:** P10 re-read. Everything named is produced. Extras beyond the
@@ -167,4 +167,4 @@ adding a question.
   because docs/03 is the output contract.
 - **Default chosen:** keep the extras; they are all additive.
 - **Alternative:** strip to the literal schema at export.
-- **Answer:**
+- **Answer:** Confirmed — docs/03 wins; docs/02 now says `triggerAt`. Extras kept.

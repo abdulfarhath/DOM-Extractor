@@ -23,11 +23,13 @@ samples, and anything rendered in the panel. No setting turns this off.
 
 Emit no value, and no length, for any control where `type` is `password`, or
 where `id`, `name`, binding attribute, `autocomplete`, or label matches
-`/captcha|otp|passcode|passw|\bpin\b(?!\s*code)|secret|token|cvv|security.?code/i`.
+`/captcha|otp|passw|secret|token|mpin|cvv|passcode|security.?code|(?:^|[^a-z])pin(?![\s_-]*code)/i`
+or the case-sensitive `/[a-z]Pin(?![\s_-]*[Cc]ode)/`.
 
 Record `{ type, label, redactedEntirely: true }` so structure is known and content
-is not. The `\bpin\b(?!\s*code)` boundary exists so postal code fields are still
-captured normally.
+is not. The `pin` clause is guarded on both sides so postal PIN code fields
+(`pinCode`, `Pin code`, `pin_code`) are still captured normally while `PIN`,
+`userPin`, `txnPin` and `mpin` are not; `spinner` and `shipping` never match.
 
 Hidden inputs appear in the DOM snapshot as `value="<hidden>"` — CSRF and session
 tokens are never stored.

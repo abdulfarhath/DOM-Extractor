@@ -10,7 +10,8 @@ loadable, so a failure at P8 still leaves P0–P7 usable.
 - `jsconfig.json`: `checkJs`, `allowJs`, `strict`, `target: ES2022`,
   `lib: ["ES2022","DOM"]`, `types: ["chrome"]`
 - `manifest.json`: MV3, name "Flowprint", permissions `storage`,
-  `unlimitedStorage`, `downloads`, `sidePanel`, `tabs`; `host_permissions`
+  `unlimitedStorage`, `downloads`, `sidePanel`, `tabs`, `offscreen` (docs/09
+  Q14 — blob URLs for export); `host_permissions`
   `<all_urls>`; MAIN-world and isolated content scripts on `<all_urls>`; module
   service worker; side panel registered
 - Delete prototype flat files once their logic has moved

@@ -31,8 +31,12 @@
     notices: '[class*="alert"], [class*="info"], [class*="note"]',
     auth: 'a[href], button, [role="button"]',
   };
-  const LOGOUT_RE = /log.?out|sign.?out|logout|signout|abmelden|d[ée]connexion|cerrar sesi[oó]n|sair/i;
-  const LOGIN_RE = /log.?in|sign.?in|login|signin|anmelden|connexion|iniciar sesi[oó]n|entrar/i;
+  /** Path-segment conventions; code, not UI language. */
+  const LOGOUT_PATH_RE = /(^|[/?#_-])(logout|signout|sign-out|log-out)([/?#_-]|$)/i;
+  const LOGIN_PATH_RE = /(^|[/?#_-])(login|signin|sign-in|log-in|auth)([/?#_-]|$)/i;
+  /** English affordance text — last resort, low confidence. */
+  const LOGOUT_TEXT_RE = /\b(log ?out|sign ?out)\b/i;
+  const LOGIN_TEXT_RE = /\b(log ?in|sign ?in)\b/i;
 
   const origin = location.origin;
   const inIframe = window.top !== window.self;
@@ -164,22 +168,49 @@
   };
 
   /**
-   * Crude logged-in signal from affordance text and hrefs. Text only.
+   * Q7 — logged-in signal from language-independent evidence first: a
+   * password field or credential autocomplete tokens mean a login form is on
+   * screen; login/logout segments in the page path or link hrefs point either
+   * way; English button text is the last resort at low confidence.
    * @returns {AuthHints}
    */
   const collectAuthHints = () => {
-    let login = '';
-    let logout = '';
-    for (const el of ns.fields.queryDeep(document, SEL.auth)) {
-      const probe = `${ns.labels.textOf(el, 60)} ${el.getAttribute('href') || ''}`;
-      if (!logout && LOGOUT_RE.test(probe)) logout = ns.labels.textOf(el, 40) || el.getAttribute('href') || 'logout link';
-      else if (!login && LOGIN_RE.test(probe)) login = ns.labels.textOf(el, 40) || el.getAttribute('href') || 'login link';
-      if (login && logout) break;
+    if (ns.fields.queryDeep(document, 'input[type="password"]').length) {
+      return { loggedIn: false, evidence: 'password field present', confidence: 'high' };
     }
-    if (logout && !login) return { loggedIn: true, evidence: `logout affordance: ${ns.redact.scrubText(logout)}` };
-    if (login && !logout) return { loggedIn: false, evidence: `login affordance: ${ns.redact.scrubText(login)}` };
-    if (login && logout) return { loggedIn: null, evidence: 'both login and logout affordances present' };
-    return { loggedIn: null, evidence: 'no auth affordance found' };
+    if (ns.fields.queryDeep(document, '[autocomplete="current-password"], [autocomplete="username"], [autocomplete="one-time-code"]').length) {
+      return { loggedIn: false, evidence: 'credential autocomplete token present', confidence: 'high' };
+    }
+    if (LOGOUT_PATH_RE.test(location.pathname)) return { loggedIn: null, evidence: 'page path is a logout route', confidence: 'medium' };
+    if (LOGIN_PATH_RE.test(location.pathname)) return { loggedIn: false, evidence: `page path matches login (${location.pathname})`, confidence: 'medium' };
+
+    let loginHref = '';
+    let logoutHref = '';
+    let loginText = '';
+    let logoutText = '';
+    for (const el of ns.fields.queryDeep(document, SEL.auth)) {
+      const href = el.getAttribute('href') || '';
+      let path = '';
+      try {
+        path = href ? new URL(href, location.href).pathname : '';
+      } catch {
+        path = href;
+      }
+      if (!logoutHref && LOGOUT_PATH_RE.test(path)) logoutHref = path;
+      else if (!loginHref && LOGIN_PATH_RE.test(path)) loginHref = path;
+      if (!logoutText || !loginText) {
+        const text = ns.labels.textOf(el, 40);
+        if (!logoutText && LOGOUT_TEXT_RE.test(text)) logoutText = text;
+        else if (!loginText && LOGIN_TEXT_RE.test(text)) loginText = text;
+      }
+    }
+    if (logoutHref && !loginHref) return { loggedIn: true, evidence: `logout href: ${ns.redact.scrubText(logoutHref)}`, confidence: 'medium' };
+    if (loginHref && !logoutHref) return { loggedIn: false, evidence: `login href: ${ns.redact.scrubText(loginHref)}`, confidence: 'medium' };
+    if (loginHref && logoutHref) return { loggedIn: null, evidence: 'both login and logout hrefs present', confidence: 'medium' };
+    if (logoutText && !loginText) return { loggedIn: true, evidence: `English logout text: "${ns.redact.scrubText(logoutText)}"`, confidence: 'low' };
+    if (loginText && !logoutText) return { loggedIn: false, evidence: `English login text: "${ns.redact.scrubText(loginText)}"`, confidence: 'low' };
+    if (loginText && logoutText) return { loggedIn: null, evidence: 'both login and logout text present', confidence: 'low' };
+    return { loggedIn: null, evidence: 'no auth signal found', confidence: 'low' };
   };
 
   /**
@@ -190,6 +221,7 @@
    */
   const buildDraft = (trigger, triggerAt, triggers) => {
     const framework = ns.framework.detect();
+    const usesShadowDom = ns.fields.hasShadowRoots(document);
     const controls = ns.fields.collectControls(document).map((el, i) => ns.fields.describeControl(el, i, framework));
     const signature = [location.pathname, document.title, controls.map((c) => c.key).join('|')].join('::');
     return {
@@ -217,7 +249,8 @@
       controlCount: controls.length,
       controls,
       lists: ns.lists.collect(document),
-      usesShadowDom: ns.fields.hasShadowRoots(document),
+      usesShadowDom,
+      orderApproximate: usesShadowDom,
       opaqueRegions: ns.fields.findOpaque(document),
       captureDegraded: ns.observe.degraded(),
     };

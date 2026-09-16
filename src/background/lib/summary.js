@@ -33,7 +33,7 @@ export function buildSummary(states, map, meta, netCount) {
   out.push(`- Framework: **${map.framework}**${states[0] && states[0].framework.version ? ` ${states[0].framework.version}` : ''}${states.some((s) => s.usesShadowDom) ? ', uses shadow DOM' : ''}`);
   out.push(`- **${states.length}** page states across **${distinctPaths.size}** distinct paths; **${map.controls.length}** unique controls; **${map.lists.length}** list patterns`);
   out.push(`- **${map.transitions.length}** transitions, **${map.dependencies.length}** dependency findings, **${netCount}** network calls in \`network.har\``);
-  out.push(`- Logged-in signal on ${loggedIn} of ${states.length} states (from logout/login affordances only)`);
+  out.push(`- Logged-in signal on ${loggedIn} of ${states.length} states (password fields, autocomplete tokens and login/logout paths; English text only at low confidence)`);
   out.push(`- Redaction packs: ${meta.packs.join(', ')}`);
   out.push('');
   out.push('Control values were replaced with `<n chars>` at capture time. Passwords, OTPs, captcha and similar were never recorded beyond their existence (`redactedEntirely`).');
@@ -70,7 +70,8 @@ export function buildSummary(states, map, meta, netCount) {
     if (s.usesShadowDom) notes.push('shadow DOM');
     if (s.opaqueRegions && s.opaqueRegions.length) notes.push(`${s.opaqueRegions.length} opaque region(s)`);
     if (s.blockedFrames && s.blockedFrames.length) notes.push(`${s.blockedFrames.length} unrecorded frame(s)`);
-    if (s.authHints && s.authHints.loggedIn === true) notes.push('logged in');
+    if (s.authHints && s.authHints.loggedIn === true) notes.push(`logged in (${s.authHints.confidence})`);
+    if (s.orderApproximate) notes.push('control order approximate');
     out.push(`| ${s.seq} | ${cell(trunc(s.title || '(untitled)', 60))} | \`${cell(s.pathname)}\` | ${s.controlCount} | ${lists} | ${s.errors.length} | \`${cell(trunc(s.trigger, 40))}\` | \`${stemFor(s)}\` | ${notes.join('; ')} |`);
   }
   out.push('');

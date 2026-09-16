@@ -179,17 +179,23 @@ export async function setTabs(tabs) {
 const pad = (n) => String(n).padStart(4, '0');
 
 /**
- * A5: fraction of the storage estimate in use, or 0 when unavailable.
- * @returns {Promise<number>}
+ * A5 (Q10): a write that fails for any reason steps the ladder and is retried
+ * once. The storage estimate is not consulted — a failed write is the only
+ * signal that means anything on a machine with unlimitedStorage.
+ * @param {Record<string, unknown>} writes
+ * @param {SessionMeta} meta
+ * @returns {Promise<SessionMeta>}   meta after any degradation
  */
-async function usageRatio() {
+async function setOrDegrade(writes, meta) {
   try {
-    if (!navigator.storage || !navigator.storage.estimate) return 0;
-    const { usage, quota } = await navigator.storage.estimate();
-    if (!usage || !quota) return 0;
-    return usage / quota;
-  } catch {
-    return 0;
+    await set(writes);
+    return meta;
+  } catch (e) {
+    console.warn('[flowprint] write failed, degrading:', e instanceof Error ? e.message : String(e));
+    const stepped = await degradeStep(meta, null);
+    if (KEYS.META in writes) writes[KEYS.META] = { .../** @type {SessionMeta} */ (writes[KEYS.META]), degraded: stepped.meta.degraded };
+    await set(writes);
+    return stepped.meta;
   }
 }
 
@@ -229,9 +235,7 @@ export async function degradeStep(meta, net) {
  * @returns {Promise<StateRecord|null>}
  */
 export async function addState(draft, dom, tabId, frameId, blockedFrames) {
-  let meta = await getMeta();
-  if (meta.degraded.statesRefused) return null;
-  if ((await usageRatio()) > TIMING.QUOTA_DEGRADE_AT) meta = (await degradeStep(meta, null)).meta;
+  const meta = await getMeta();
   if (meta.degraded.statesRefused) return null;
   if (meta.degraded.snapshots) dom = null;
 
@@ -347,7 +351,7 @@ export async function addNet(draft, tabId, frameId, stateIdAtTime, stateIdInferr
   net.push(entry);
   const cap = meta.degraded.netTrimmed ? Math.floor(CAPS.NET / 4) : CAPS.NET;
   while (net.length > cap) net.shift();
-  await set({ [KEYS.NET]: net, [KEYS.META]: { ...meta, netSeq: seq, netCount: net.length } });
+  await setOrDegrade({ [KEYS.NET]: net, [KEYS.META]: { ...meta, netSeq: seq, netCount: net.length } }, meta);
   return entry;
 }
 
@@ -363,7 +367,7 @@ export async function addTransition(t) {
   const list = await getTransitions();
   list.push(t);
   while (list.length > CAPS.TRANSITIONS) list.shift();
-  await set({ [KEYS.TRANSITIONS]: list });
+  await setOrDegrade({ [KEYS.TRANSITIONS]: list }, await getMeta());
 }
 
 /** @returns {Promise<Dependency[]>} */
@@ -376,7 +380,7 @@ export async function addDep(d) {
   const list = await getDeps();
   list.push(d);
   while (list.length > CAPS.DEPS) list.shift();
-  await set({ [KEYS.DEPS]: list });
+  await setOrDegrade({ [KEYS.DEPS]: list }, await getMeta());
 }
 
 // ------------------------------------------------------------ snapshots

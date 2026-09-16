@@ -125,7 +125,12 @@
  * @property {boolean} webComponents   custom elements registered / shadow roots present
  */
 
-/** @typedef {{ loggedIn: boolean|null, evidence: string }} AuthHints */
+/**
+ * Crude logged-in signal (Q7). Language-independent signals first — a
+ * password field, autocomplete tokens, login/logout path segments — and
+ * English affordance text only as a low-confidence last resort.
+ * @typedef {{ loggedIn: boolean|null, evidence: string, confidence: 'high'|'medium'|'low' }} AuthHints
+ */
 
 /**
  * @typedef {Object} TableSlot
@@ -224,6 +229,7 @@
  * @property {AnyControlRecord[]} controls
  * @property {ListPatterns} lists
  * @property {boolean} usesShadowDom
+ * @property {boolean} orderApproximate   Q5: control `index` interleaves shadow content after light DOM
  * @property {OpaqueRegion[]} opaqueRegions
  * @property {boolean} captureDegraded   A2 breaker was active when this state was built
  */

@@ -4,10 +4,13 @@
   window.__FP = window.__FP || {};
 
   /**
-   * Rule 3 — control shapes whose content never reaches storage. `\bpin\b`
-   * with the `code` guard keeps postal PIN code fields as ordinary controls.
+   * Rule 3 — control shapes whose content never reaches storage. `pin` must
+   * not sit inside another word (spinner, shipping) and must not be followed
+   * by "code", so postal PIN code fields stay ordinary controls. Camel-case
+   * `userPin` / `txnPin` is caught by the second, case-sensitive pattern.
    */
-  const CREDENTIAL_RE = /captcha|otp|passcode|passw|\bpin\b(?!\s*code)|secret|token|cvv|security.?code/i;
+  const CREDENTIAL_RE = /captcha|otp|passw|secret|token|mpin|cvv|passcode|security.?code|(?:^|[^a-z])pin(?![\s_-]*code)/i;
+  const CAMEL_PIN_RE = /[a-z]Pin(?![\s_-]*[Cc]ode)/;
 
   /** Packs enabled for this document; the worker decides, the flags message tells us. */
   /** @type {string[]} */
@@ -42,7 +45,7 @@
       el.getAttribute('v-model'),
       label,
     ];
-    return probes.some((p) => p && CREDENTIAL_RE.test(p));
+    return probes.some((p) => p && (CREDENTIAL_RE.test(p) || CAMEL_PIN_RE.test(p)));
   };
 
   /**

@@ -48,7 +48,9 @@ export function buildBrief(states, map, meta, net) {
   out.push(`- **Origin:** \`${map.origin}\``);
   out.push(`- **Framework:** ${map.framework}${fw && fw.framework.version ? ` ${fw.framework.version}` : ''} (${fw ? fw.framework.confidence : 'unknown'} confidence)${usesShadow ? ' — uses shadow DOM, see §2' : ''}`);
   out.push(`- **States:** ${states.length} across ${new Set(states.map((s) => s.pathname)).size} paths; **controls:** ${map.controls.length}; **list patterns:** ${map.lists.length}`);
-  out.push(`- **Session auth:** ${loggedIn && !loggedOut ? 'looked logged in throughout' : loggedIn ? `logged in on ${loggedIn} states, logged out on ${loggedOut}` : loggedOut ? 'looked logged out' : 'unknown (no login/logout affordance seen)'}`);
+  const authConf = states.map((s) => (s.authHints ? s.authHints.confidence : 'low'));
+  const bestConf = authConf.includes('high') ? 'high' : authConf.includes('medium') ? 'medium' : 'low';
+  out.push(`- **Session auth:** ${loggedIn && !loggedOut ? 'looked logged in throughout' : loggedIn ? `logged in on ${loggedIn} states, logged out on ${loggedOut}` : loggedOut ? 'looked logged out' : 'unknown (no auth signal seen)'} — ${bestConf} confidence, from password fields / autocomplete tokens / login-logout paths${bestConf === 'low' ? ' / English button text' : ''}`);
   out.push(`- **Language hint:** ${states[0] && states[0].lang ? `\`<html lang="${cell(states[0].lang)}">\`` : 'none declared'}`);
   out.push('');
 
@@ -66,6 +68,8 @@ export function buildBrief(states, map, meta, net) {
   out.push('');
   if (usesShadow) {
     out.push('**Shadow DOM.** Some controls live inside open shadow roots. Their `selectors.shadowPath` lists the host elements to traverse, in order, before the `primary` selector applies inside the last root. Playwright\'s CSS engine pierces open shadow roots automatically; Selenium, Puppeteer `$` and plain `querySelector` do not — query each host, then its `shadowRoot`. Ignoring `shadowPath` produces code that silently matches nothing.');
+    out.push('');
+    out.push('**Control order is approximate on these states** (`orderApproximate: true`). Controls inside shadow roots are listed after the light-DOM controls of their document, not at the host\'s position, so `index` does not reflect visual or tab order. Use `boundingBox` (with `scroll`) when order matters.');
     out.push('');
   }
   const opaqueCount = states.reduce((n, s) => n + ((s.opaqueRegions && s.opaqueRegions.length) || 0), 0);

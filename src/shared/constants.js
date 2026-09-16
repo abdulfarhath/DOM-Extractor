@@ -77,8 +77,6 @@ export const TIMING = Object.freeze({
   PROMPT_SUSPECT_MS: 5000,
   /** How long export waits for one download to finish before moving on. */
   DOWNLOAD_WAIT_MS: 60000,
-  /** A5: fraction of the storage estimate at which degradation starts. */
-  QUOTA_DEGRADE_AT: 0.8,
 });
 
 /**

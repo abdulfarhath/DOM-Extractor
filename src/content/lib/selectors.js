@@ -35,6 +35,19 @@
   };
 
   /**
+   * Q3: an id that passes the rejection rules but still looks minted — eight
+   * or more characters mixing letters and digits with digits not merely
+   * trailing (`x7k2m9pq`, `f3a9c1d2e`). `address1` and `dob2` are authored.
+   * @param {string} id
+   * @returns {boolean}
+   */
+  const looksRandomAlnum = (id) => {
+    if (id.length < 8 || !/^[A-Za-z0-9]+$/.test(id)) return false;
+    const head = id.replace(/\d+$/, '');
+    return /\d/.test(head) && /[A-Za-z]/.test(head);
+  };
+
+  /**
    * Escape a value for a double-quoted CSS attribute selector.
    * @param {string} v
    * @returns {string}
@@ -290,9 +303,11 @@
     const ariaCand = aria ? { sel: role ? `[role=${q(role)}][aria-label=${q(aria)}]` : `${tag}[aria-label=${q(aria)}]`, rank: 5, css: true } : null;
 
     // Framework-aware ordering (docs/02): Angular promotes the binding above
-    // the id; React/Vue push a suspicious-looking id below the name.
-    const suspiciousId = idCand && (framework.framework === 'react' || framework.framework === 'vue') && (/\d/.test(el.id) || el.id.length < 3);
-    if (suspiciousId) notes.push(`id demoted on ${framework.framework}: looks generated (${el.id})`);
+    // the id; React/Vue push an id of generated shape below the name. The
+    // known-prefix / counter / UUID / hash shapes were already rejected above,
+    // so only the random-alphanumeric shape is left to demote (Q3).
+    const suspiciousId = idCand && (framework.framework === 'react' || framework.framework === 'vue') && looksRandomAlnum(el.id);
+    if (suspiciousId) notes.push(`id demoted on ${framework.framework}: random alphanumeric shape (${el.id})`);
     if (framework.framework === 'angular') {
       if (bindCand) c.push(bindCand);
       if (idCand) c.push(idCand);

@@ -260,3 +260,32 @@ src/sidepanel/panel.{html,css,js}    consent bar, counters, feed, export
 
 Not built, by instruction: tests, any run of the extension. Next: the human
 works through `docs/07-acceptance.md` and answers `QUESTIONS.md` (Q1–Q15).
+
+## 2026-09-16 — Revision 1 (answers to Q1–Q15)
+- Built:
+  - Q2 credential regex replaced with the validated pair (`redact.js`,
+    docs/05). Verified: `pinCode`/`Pin code`/`pin_code`/`Pincode` pass,
+    `PIN`/`userPin`/`txnPin`/`mpin`/`cvv`/`passcode` redact, `spinner`/
+    `shipping`/`address1` untouched.
+  - Q3 React/Vue id demotion narrowed to `looksRandomAlnum` (8+ chars, mixed
+    letters/digits, digits not only trailing) — `selectors.js`.
+  - Q5 `orderApproximate` on StateDraft when shadow roots present; brief §2
+    and summary inventory say so — `schema.js`, `capture.js`, `brief.js`,
+    `summary.js`.
+  - Q7 auth hints rebuilt on language-independent signals with a
+    `confidence` field; English text last at `low` — `capture.js`,
+    `schema.js`, `brief.js`, `summary.js`.
+  - Q10 storage estimate dropped; `setOrDegrade` retries any failed write
+    once after stepping the ladder, used by net/transitions/deps as well as
+    states — `store.js`, `constants.js`.
+  - Q14 docs/06 permission list gains `offscreen`; Q15 docs/02 says
+    `triggerAt`.
+  - Q6 verified present (numeric sibling run in `collectPagination`).
+  - Q1, Q4, Q8, Q9, Q11, Q12, Q13 confirmed, no change.
+- Files: `src/content/lib/redact.js`, `src/content/lib/selectors.js`,
+  `src/content/capture.js`, `src/shared/schema.js`, `src/shared/constants.js`,
+  `src/background/lib/store.js`, `src/background/lib/brief.js`,
+  `src/background/lib/summary.js`, `docs/02-capture-spec.md`,
+  `docs/05-privacy.md`, `docs/06-phases.md`, `QUESTIONS.md` (answers filled).
+- Left out: nothing.
+- `npm run check`: pass

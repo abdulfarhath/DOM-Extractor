@@ -50,7 +50,7 @@ Record as `{ framework, version, confidence }`.
 - `origin`, `inIframe`, `frameSrc`
 - `viewport` — width, height, devicePixelRatio
 - `framework`
-- `trigger`, `triggerTimestamp`
+- `trigger`, `triggerAt` (named as in docs/03)
 - `headings` — `h1..h4, legend, [class*="title"], [class*="heading"]`, max 40
 - `steps` — `[role="tab"], [role="tablist"] > *, .nav-tabs li, [class*="step"],
   [class*="wizard"], .breadcrumb li` in DOM order, with which is active
