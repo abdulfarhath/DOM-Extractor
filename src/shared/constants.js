@@ -1,34 +1,36 @@
 /**
- * Shared constants for the service worker and side panel.
+ * Shared constants for the service worker, side panel and offscreen document.
  *
  * Content scripts cannot import this file (classic scripts, no modules), so the
- * handful of values they need — message types, the meta key, debounce — are
- * duplicated inline there. Keep the two in sync; the content-side copies are
- * marked with a comment pointing back here.
+ * few values they need — message types, the meta/origins keys, debounce — are
+ * duplicated inline there with a comment pointing back here. Keep them in sync.
  */
 
-export const TOOL_NAME = 'MCA DOM Capturer';
+export const TOOL_NAME = 'Flowprint';
 export const TOOL_VERSION = '1.0.0';
 
-/** Storage keys. Per-state keys take a suffix: `dc:dom:<stateId>`. */
+/** Storage keys. Per-state keys take a suffix: `fp:dom:<stateId>`. */
 export const KEYS = Object.freeze({
-  STATES: 'dc:states',
-  NET: 'dc:net',
-  META: 'dc:meta',
-  TRANSITIONS: 'dc:transitions',
-  DEPS: 'dc:deps',
-  TABS: 'dc:tabs',
-  DOM_PREFIX: 'dc:dom:',
-  SHOT_PREFIX: 'dc:shots:',
+  ORIGINS: 'fp:origins',
+  STATES: 'fp:states',
+  NET: 'fp:net',
+  META: 'fp:meta',
+  TRANSITIONS: 'fp:transitions',
+  DEPS: 'fp:deps',
+  TABS: 'fp:tabs',
+  QUEUE: 'fp:queue',
+  LOCK: 'fp:lock',
+  DOM_PREFIX: 'fp:dom:',
+  SHOT_PREFIX: 'fp:shots:',
   /** Every key we ever write starts with this; Clear session wipes by prefix. */
-  PREFIX: 'dc:',
+  PREFIX: 'fp:',
 });
 
-/** Hard caps from docs/01 and docs/02. Oldest entries are dropped past these. */
+/** Hard caps from docs/01 and docs/02. Oldest entries drop past these. */
 export const CAPS = Object.freeze({
-  STATES: 400,
-  NET: 2000,
-  TRANSITIONS: 2000,
+  STATES: 500,
+  NET: 2500,
+  TRANSITIONS: 2500,
   DEPS: 500,
   OPTIONS_PER_SELECT: 60,
   HEADINGS: 40,
@@ -36,45 +38,91 @@ export const CAPS = Object.freeze({
   BUTTONS: 60,
   ERRORS: 20,
   NOTICES: 10,
+  TABLES: 20,
+  REPEATS: 20,
+  SLOTS: 12,
+  PAGINATION: 5,
+  DOWNLOADS: 40,
+  SHADOW_DEPTH: 10,
   REQUEST_BODY_CHARS: 2000,
   RESPONSE_BODY_CHARS: 4000,
   PANEL_ROWS: 60,
+  TIMELINE: 200,
 });
 
 export const TIMING = Object.freeze({
   /** Capture debounce after any trigger, ms. */
   CAPTURE_DEBOUNCE_MS: 900,
+  /** A2: at most one stored state per document per this many ms (manual exempt). */
+  MIN_STATE_GAP_MS: 2000,
+  /** A2: mutation records per rolling second before dom-change triggers are cut. */
+  MUTATION_BREAKER_PER_SEC: 500,
+  /** A2: how long dom-change stays cut once the breaker trips. */
+  MUTATION_BREAKER_COOLDOWN_MS: 10000,
   /** Minimum spacing between captureVisibleTab calls, ms. */
   SCREENSHOT_THROTTLE_MS: 600,
   /** Max pending screenshot requests; extras are dropped, never queued. */
   SCREENSHOT_QUEUE_MAX: 3,
-  /** Window after a change:<field> trigger in which a follow-on counts as a dependency. */
+  /** A4: queue entries older than this are dropped on worker start. */
+  SCREENSHOT_QUEUE_STALE_MS: 30000,
+  /** A4: a write lock older than this is considered abandoned. */
+  LOCK_STALE_MS: 5000,
+  /** Window after a change:<key> trigger in which a follow-on counts as a dependency. */
   DEPENDENCY_WINDOW_MS: 2500,
   /** Side panel poll interval. */
   PANEL_POLL_MS: 1500,
   /** Gap between sequential chrome.downloads calls during export. */
   EXPORT_FILE_GAP_MS: 150,
+  /** Q15: a single download slower than this means Chrome is prompting per file. */
+  PROMPT_SUSPECT_MS: 5000,
+  /** How long export waits for one download to finish before moving on. */
+  DOWNLOAD_WAIT_MS: 60000,
+  /** A5: fraction of the storage estimate at which degradation starts. */
+  QUOTA_DEGRADE_AT: 0.8,
 });
 
 /**
- * Message types. Content → SW, panel → SW, and SW → content (CAPTURE_NOW).
- * Mirrored inline in src/content/capture.js.
+ * Message types. Mirrored inline in src/content/capture.js and
+ * src/offscreen/offscreen.js.
  */
 export const MSG = Object.freeze({
-  STATE_CAPTURED: 'mcadc:state-captured',
-  NET_ENTRY: 'mcadc:net-entry',
-  GET_FLAGS: 'mcadc:get-flags',
-  CAPTURE_NOW: 'mcadc:capture-now',
-  GET_STATS: 'mcadc:get-stats',
-  GET_STATES: 'mcadc:get-states',
-  SET_RECORDING: 'mcadc:set-recording',
-  SET_SCREENSHOTS: 'mcadc:set-screenshots',
-  EXPORT: 'mcadc:export',
-  CLEAR: 'mcadc:clear',
+  // content → worker
+  GATE_CHECK: 'fp:gate-check',
+  STATE_CAPTURED: 'fp:state-captured',
+  NET_ENTRY: 'fp:net-entry',
+  FRAME_BLOCKED: 'fp:frame-blocked',
+  THROTTLED: 'fp:throttled',
+  // worker → content
+  CAPTURE_NOW: 'fp:capture-now',
+  // panel → worker
+  GET_STATS: 'fp:get-stats',
+  GET_STATES: 'fp:get-states',
+  GET_ORIGIN_INFO: 'fp:get-origin-info',
+  ADD_ORIGIN: 'fp:add-origin',
+  REMOVE_ORIGIN: 'fp:remove-origin',
+  SET_RECORDING: 'fp:set-recording',
+  SET_SCREENSHOTS: 'fp:set-screenshots',
+  SET_DANGER_WORDS: 'fp:set-danger-words',
+  SET_PACKS: 'fp:set-packs',
+  EXPORT: 'fp:export',
+  CLEAR: 'fp:clear',
+  // worker ↔ offscreen
+  OFFSCREEN_MAKE_BLOB: 'fp:offscreen-make-blob',
+  OFFSCREEN_REVOKE: 'fp:offscreen-revoke',
 });
 
-/** Button text that the downstream tool must never activate. */
-export const DANGER_BUTTON_RE = /submit|pay|confirm|delete|final/i;
+/** Default danger words; user-editable in the panel's Advanced block. */
+export const DEFAULT_DANGER_WORDS = Object.freeze(['submit', 'pay', 'confirm', 'delete', 'remove', 'final']);
 
-/** Origins the extension is allowed to run on. Mirrors manifest host_permissions. */
-export const ALLOWED_ORIGINS = Object.freeze(['https://www.mca.gov.in', 'https://mca.gov.in']);
+/** Redaction packs. `generic` is always on; `india` auto-enables on `.in` hosts. */
+export const PACKS = Object.freeze({
+  ALWAYS_ON: Object.freeze(['generic']),
+  /** host suffix → pack name */
+  AUTO_BY_HOST: Object.freeze({ '.in': 'india' }),
+  ALL: Object.freeze(['generic', 'india']),
+});
+
+/** Anchors whose href ends in one of these are recorded as downloads. */
+export const DOCUMENT_EXTENSIONS = Object.freeze([
+  'pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'ppt', 'pptx', 'zip', 'txt', 'json', 'xml', 'rtf', 'odt', 'ods',
+]);

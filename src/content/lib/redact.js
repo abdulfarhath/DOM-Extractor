@@ -1,34 +1,20 @@
-/* Redaction — docs/05. Loaded first so every other content lib can rely on it.
-   Classic script: no imports. Exposes window.__MCADC.redact. */
+/* Redaction — docs/05 rules 2–4. Loaded after the packs so it can index them.
+   Classic script: exposes window.__FP.redact. */
 (() => {
-  window.__MCADC = window.__MCADC || {};
+  window.__FP = window.__FP || {};
 
   /**
-   * Rule 2 — id / name / formcontrolname / label shapes that are never captured.
-   * `pin` must not be part of another word (spinner, shipping) and must not be
-   * followed by "code": postal PIN code fields on the address blocks are
-   * structure we need (Q3). Camel-case `userPin` is caught by the second,
-   * case-sensitive pattern.
+   * Rule 3 — control shapes whose content never reaches storage. `\bpin\b`
+   * with the `code` guard keeps postal PIN code fields as ordinary controls.
    */
-  const CREDENTIAL_RE = /captcha|otp|passw|secret|token|mpin|(?:^|[^a-z])pin(?![\s_-]*code)/i;
-  const CAMEL_PIN_RE = /[a-z]Pin(?![\s_-]*[Cc]ode)/;
+  const CREDENTIAL_RE = /captcha|otp|passcode|passw|\bpin\b(?!\s*code)|secret|token|cvv|security.?code/i;
+
+  /** Packs enabled for this document; the worker decides, the flags message tells us. */
+  /** @type {string[]} */
+  let enabledPacks = ['generic'];
 
   /**
-   * Rule 3 — body scrub patterns, applied in this order. PAN and passport run
-   * before DIN so a mixed alnum token is not partially eaten by the digit rules.
-   * @type {Array<[RegExp, string]>}
-   */
-  const BODY_PATTERNS = [
-    [/[A-Z]{5}[0-9]{4}[A-Z]/g, '<PAN>'],
-    [/[A-Z]{1}[0-9]{7}/g, '<PASSPORT>'],
-    [/[\w.+-]+@[\w-]+\.[\w.]+/g, '<EMAIL>'],
-    [/\b\d{4}\s?\d{4}\s?\d{4}\b/g, '<AADHAAR>'],
-    [/\b(?:\+91[-\s]?)?[6-9]\d{9}\b/g, '<PHONE>'],
-    [/\b\d{8}\b/g, '<DIN>'],
-  ];
-
-  /**
-   * Rule 1 — keep the length, drop the content.
+   * Rule 2 — keep the length, drop the content.
    * @param {unknown} value
    * @returns {string}
    */
@@ -39,8 +25,8 @@
   };
 
   /**
-   * Rule 2 — true when the control must be recorded only as redactedEntirely.
-   * @param {ControlElement} el
+   * Rule 3 — true when the control must be recorded only as redactedEntirely.
+   * @param {Element} el
    * @param {string} label
    * @returns {boolean}
    */
@@ -52,31 +38,62 @@
       el.getAttribute('name'),
       el.getAttribute('formcontrolname'),
       el.getAttribute('ng-reflect-name'),
+      el.getAttribute('autocomplete'),
+      el.getAttribute('v-model'),
       label,
     ];
-    return probes.some((p) => p && (CREDENTIAL_RE.test(p) || CAMEL_PIN_RE.test(p)));
+    return probes.some((p) => p && CREDENTIAL_RE.test(p));
   };
 
   /**
-   * Rule 3 — pattern scrub. Returns null for null input so callers can keep
-   * "no body" distinct from "empty body".
+   * @param {string[]} names
+   */
+  const setPacks = (names) => {
+    const packs = window.__FP.packs || {};
+    enabledPacks = ['generic', ...names.filter((n) => n !== 'generic' && packs[n])];
+  };
+
+  /** @returns {string[]} */
+  const getPacks = () => enabledPacks.slice();
+
+  /**
+   * Rule 4 — every enabled pack's rules, in pack order then rule order.
+   * @returns {Array<{ name: string, pattern: RegExp, replacement: string | ((m: string) => string) }>}
+   */
+  const activeRules = () => {
+    const packs = window.__FP.packs || {};
+    /** @type {Array<{ name: string, pattern: RegExp, replacement: string | ((m: string) => string) }>} */
+    const out = [];
+    for (const n of enabledPacks) {
+      const p = packs[n];
+      if (p) out.push(...p.rules);
+    }
+    return out;
+  };
+
+  /**
+   * Rule 4 — pattern scrub. Null in, null out, so callers can keep "no body"
+   * distinct from "empty body".
    * @param {string|null|undefined} text
    * @returns {string|null}
    */
   const scrubBody = (text) => {
     if (text == null) return null;
     let out = String(text);
-    for (const [re, rep] of BODY_PATTERNS) out = out.replace(re, rep);
+    for (const r of activeRules()) {
+      // A string replacement must not be interpreted as a $-pattern.
+      out = typeof r.replacement === 'string' ? out.replace(r.pattern, () => /** @type {string} */ (r.replacement)) : out.replace(r.pattern, r.replacement);
+    }
     return out;
   };
 
   /**
-   * Same pass for free text pulled from the page. Labels rarely carry PII, but
-   * MCA renders "PAN: ABCDE1234F" style summaries as plain text on review pages.
+   * Same pass for free text pulled from the page — labels, headings, option
+   * text. Review pages routinely render identifiers as plain text.
    * @param {string} text
    * @returns {string}
    */
   const scrubText = (text) => scrubBody(text) || '';
 
-  window.__MCADC.redact = { redactValue, isCredentialControl, scrubBody, scrubText, CREDENTIAL_RE };
+  window.__FP.redact = { redactValue, isCredentialControl, scrubBody, scrubText, setPacks, getPacks, CREDENTIAL_RE };
 })();
