@@ -1,194 +1,170 @@
 # QUESTIONS
 
-Append-only. Every judgement call the spec didn't cover. Do not block on these —
-pick the default, record it, keep building. The human answers them all after the
-build and you revise.
+Append-only. Every judgement call the spec doesn't cover. Don't block — pick the
+default, record it, keep building. The human answers after the build.
 
-Format:
+Decisions already settled live in `docs/09-resolved.md`. Check there before
+adding a question.
 
 ## Q<n> — <short title>
-- **Context:** where this came up
-- **Default chosen:** what you did
-- **Alternative:** what else was reasonable
+- **Context:**
+- **Default chosen:**
+- **Alternative:**
 - **Answer:** _(left blank for the human)_
 
 ---
 
-## Q1 — Screenshot capture on iframes
-- **Context:** `captureVisibleTab` grabs the whole tab, so an iframe state's
-  screenshot is really the parent page.
-- **Default chosen:** skip screenshots for iframe states, per docs/02.
-- **Alternative:** capture anyway and mark it as parent-frame imagery.
-- **Answer:** Changed — capture iframe screenshots, label them parent-frame. Done: `screenshotOf: 'page'|'parent-frame'` on StateRecord; noted in SUMMARY.md and manifest warnings.
+## Q1 — Redaction packs are classic scripts, not ES modules
+- **Context:** docs/05 says "one file, one exported array". Packs run in the
+  content world, which cannot import.
+- **Default chosen:** `src/content/packs/<name>.js` registers
+  `window.__FP.packs.<name> = { name, rules }` and is listed in the manifest
+  before `redact.js`. Adding a pack = one file + one manifest line + its name in
+  `PACKS.ALL`.
+- **Alternative:** ES module packs consumed only by the worker, with bodies
+  scrubbed in the worker instead of at capture — rejected because rule 5 says
+  redaction happens at capture time.
+- **Answer:**
 
-## Q2 — What counts as "ends in a bare number that varies"
-- **Context:** `selectors.js` id rejection. A single capture cannot observe
-  variance, so the rule needs a static approximation.
-- **Default chosen:** reject ids matching `/[-_:.]\d+$/` (separator then
-  digits, e.g. `input-12`, `ctl_3`). Plain `panNumber1` is kept as authored.
-- **Alternative:** reject any id ending in a digit; or compare ids across
-  captures of the same pathname at export time and demote the ones that differ.
-- **Answer:** Extended — keep regex, add cross-state id variance check at export. Done: `findVaryingIds` in fieldmap.js groups by path+formControlName+name+label; varying ids drop out of the key and `#id` primaries are demoted to the best non-id fallback with a note; SUMMARY.md lists them.
+## Q2 — Camel-case credential names slip past `\bpin\b`
+- **Context:** docs/05 rule 3 regex is fixed. `userPin`, `txnPin`, `mpin` do not
+  match `\bpin\b` because there is no word boundary inside a camel-case token.
+- **Default chosen:** regex used exactly as written in docs/05. `password`,
+  `otp`, `captcha`, `cvv` etc. still match anywhere in the token.
+- **Alternative:** add a case-sensitive `/[a-z]Pin(?![\s_-]*[Cc]ode)/` and
+  `mpin` — the first build had this.
+- **Answer:**
 
-## Q3 — `pin` in the credential regex also hits postal PIN code fields
-- **Context:** docs/05 rule 2 regex `/captcha|otp|passw|pin|secret|token/i`.
-  SPICe+ address blocks label the postal code "Pin code" / `pinCode`, so those
-  fields are recorded as `redactedEntirely` and lose their selectors and
-  maxlength.
-- **Default chosen:** followed the spec literally. Over-redaction is the safe
-  failure.
-- **Alternative:** `\bpin\b(?!\s*code)` or an explicit allow-list for
-  `pincode|pin code|pin_code`.
-- **Answer:** Changed — fix the regex, pincode must survive. Done: `/captcha|otp|passw|secret|token|mpin|(?:^|[^a-z])pin(?![\s_-]*code)/i` plus case-sensitive `/[a-z]Pin(?![\s_-]*[Cc]ode)/`; docs/05 updated.
+## Q3 — What "demote `#id` if it looks generated" means on React/Vue
+- **Context:** docs/02 selector ranking. Ids that match the generated-id
+  regexes are already rejected on every framework, so the React/Vue clause
+  needs a stricter, framework-specific test to mean anything.
+- **Default chosen:** on React/Vue an id containing any digit or shorter than
+  three characters is moved below `[name]`, with a note. It stays a candidate.
+- **Alternative:** reject such ids outright on React/Vue; or ignore the
+  clause because the base rejection already covers it.
+- **Answer:**
 
-## Q4 — Bounding boxes are viewport-relative
-- **Context:** `boundingBox` in FieldRecord; spec gives `{x,y,w,h}` without a
-  frame of reference.
-- **Default chosen:** `getBoundingClientRect()` as-is (viewport coordinates), so
-  boxes line up with the screenshot taken at the same moment.
-- **Alternative:** add `scrollX/scrollY` for document coordinates.
-- **Answer:** Extended — viewport rects, plus scroll offset on the state. Done: `scroll: {x, y}` on StateDraft.
+## Q4 — One key for signatures, edges and the flow map
+- **Context:** docs/02 now puts `key` on every ControlRecord as "the identity
+  used in signatures"; docs/09 Q16 says signatures keep their own key and the
+  flow map joins through a lookup table.
+- **Default chosen:** a single `key` computed once per control in the Q16
+  order and used everywhere. The lookup table collapses to identity, so it is
+  omitted; `altKeys` on the flow map still lists every other identifier seen.
+- **Alternative:** keep a separate signature key (`id || name || binding ||
+  label`) and the join table, at the cost of two identities per control.
+- **Answer:**
 
-## Q5 — Selector uniqueness uses the whole document, not the frame's form
-- **Context:** `unique` flag and `fragile` demotion.
-- **Default chosen:** `document.querySelectorAll(primary).length === 1` per
-  content-script document (each iframe checks its own document).
-- **Alternative:** scope to the closest `<form>` so duplicated ids in unrelated
-  panels do not demote an otherwise-good selector.
-- **Answer:** Extended — document scope stays, add form-scoped uniqueness too. Done: `selectors.uniqueInForm` (null without a form); note added when unique only within the form.
+## Q5 — Shadow-root traversal order in the control list
+- **Context:** `queryDeep` returns light-DOM matches first, then each host's
+  shadow matches in host order, so `index` is not strict document order when
+  shadow roots are present.
+- **Default chosen:** accept the approximation; `index` is only a tiebreak and
+  the signature is order-sensitive but consistent across captures.
+- **Alternative:** a full TreeWalker that interleaves shadow content at the
+  host's position, at some cost per capture.
+- **Answer:**
 
-## Q6 — Hidden inputs and credentials in the DOM snapshot
-- **Context:** docs/05 rule 1 rewrites `value` to `<n chars>`; rule 2 says
-  credentials never reach storage. Neither says what the snapshot should show
-  for `type=hidden` (CSRF tokens, session ids) or for credential controls.
-- **Default chosen:** hidden inputs get `value="<hidden>"`; credential controls
-  get `value="<redacted>"` with no length; everything else `<n chars>`.
-- **Alternative:** drop hidden inputs from the snapshot entirely; or keep the
-  `<n chars>` length for credentials too.
-- **Answer:** Confirmed.
+## Q6 — Pagination "next"/"prev" detection uses attribute and class names
+- **Context:** docs/02 forbids English-only assumptions. `[rel=next]`,
+  `[class*="next"]`, `[aria-label*="next" i]` are code-level conventions, not
+  UI language, but a site with `class="suivant"` and no rel/aria would yield
+  `next: null`.
+- **Default chosen:** attribute/class conventions only; the block itself is
+  still recorded with `style` so a consumer can inspect it.
+- **Alternative:** also accept a single-arrow glyph (`›`, `→`, `»`) as the
+  next control when nothing else matches.
+- **Answer:**
 
-## Q7 — `pushState` patch lives in the MAIN-world hook, not the content script
-- **Context:** docs/02 lists patched `pushState`/`replaceState` as a trigger
-  and docs/01 puts triggers in `content/lib/observe.js`. The prototype patched
-  `history` from the isolated world, which only intercepts the isolated world's
-  own calls — the page's Angular router never went through it.
-- **Default chosen:** patch in `net-hook.js` (MAIN world) and post a
-  `{__mcadc:'nav', kind}` message that `observe.js` turns into `nav:pushState`.
-  `popstate`/`hashchange` are real DOM events and stay in `observe.js`.
-- **Alternative:** a second MAIN-world file (`main-world/nav-hook.js`) to keep
-  `net-hook.js` single-purpose.
-- **Answer:** Changed — own file `main-world/nav-hook.js`. Done; registered in the manifest after net-hook.js; docs/01 layout updated.
+## Q7 — Auth-hint word list
+- **Context:** docs/02 `authHints` matches "login/logout/sign affordances" by
+  text or href. Hrefs are conventionally English; visible text is not.
+- **Default chosen:** English patterns plus a handful of common European
+  equivalents (abmelden, déconnexion, cerrar sesión, sair …). `loggedIn` is
+  `null` with an explanation when nothing matches, never a guess.
+- **Alternative:** hrefs only, no text matching at all.
+- **Answer:**
 
-## Q8 — Net entries are posted after the response body is read
-- **Context:** `fetch` bodies are read from a clone asynchronously so the page
-  is never delayed. The NetDraft is therefore posted once the body arrives, not
-  at response-headers time.
-- **Default chosen:** one message per call, after the body. `startedAt` and
-  `durationMs` are still measured from the call, so ordering can be recovered.
-- **Alternative:** two messages (headers, then body) merged in the service
-  worker.
-- **Answer:** Extended — one message, plus a 5s body-read timeout. Done: `BODY_READ_TIMEOUT_MS = 5000`, body becomes `<body read timed out after 5000ms>`.
+## Q8 — `change` on text inputs is ignored
+- **Context:** docs/02 lists "Value change — capture-phase change listener —
+  `change:<key>`" without restricting element kinds. Native text inputs fire
+  `change` on blur, which would turn every field visit into a trigger and
+  fight the "typing does not create states" rule.
+- **Default chosen:** `change` triggers only for select, radio, checkbox, file
+  and elements carrying a `role`. Text fields still surface through the
+  signature/errors when they reveal something.
+- **Alternative:** honour every `change` and rely on dedupe.
+- **Answer:**
 
-## Q9 — Visible errors participate in dedupe
-- **Context:** docs/02 defines the signature as pathname + title + field keys
-  and says a matching signature is discarded. docs/07 expects a deliberately
-  triggered validation error to be captured in `errors`. On MCA the error
-  appears without adding fields, so a literal reading would never capture it.
-- **Default chosen:** the signature is exactly as specified (and exported), but
-  dedupe also compares the joined visible `errors` list; a change in either
-  produces a state.
-- **Alternative:** fold errors into the signature string itself; or accept that
-  errors are only seen when they coincide with a field change.
-- **Answer:** Confirmed.
+## Q9 — Net entries are gated on the sending frame's origin
+- **Context:** docs/05 says never capture on a non-consented origin. A
+  consented page calls APIs on other origins (CDNs, api.example.com).
+- **Default chosen:** the gate is the origin of the *document* that made the
+  call (`pageUrl`), not the request URL. Cross-origin API calls made by a
+  consented page are recorded; calls made by a non-consented iframe are not.
+- **Alternative:** also require the request URL's origin to be consented,
+  which would drop most API traffic on split front/back-end sites.
+- **Answer:**
 
-## Q10 — "Capture now" bypasses dedupe
-- **Context:** the side panel's manual trigger exists for moments a trigger
-  did not fire. If the signature is unchanged, dedupe would silently drop it
-  and the user would see nothing happen.
-- **Default chosen:** `manual` always stores a state, even if identical.
-- **Alternative:** respect dedupe and show a "no change" toast in the panel.
-- **Answer:** Extended — manual always stores, flagged as duplicate. Done: `duplicateOf: <previous state id>` on StateRecord, `duplicate` chip in the panel, noted in SUMMARY.md inventory. Worker tracks `lastErrorsKey` per tab:frame for the comparison.
+## Q10 — Quota estimate as the 80% signal
+- **Context:** A5 says degrade at 80% of estimated usage. With
+  `unlimitedStorage` the estimate's quota is the disk-based browser quota,
+  so 80% is reached only on a nearly full disk.
+- **Default chosen:** `navigator.storage.estimate()` checked on every state
+  add; a failed write also steps the ladder. No artificial ceiling.
+- **Alternative:** a fixed soft ceiling (e.g. 1 GB of `fp:` data) tracked by
+  summing stored sizes.
+- **Answer:**
 
-## Q11 — Trigger attribution within a debounce burst
-- **Context:** a click is followed by dozens of `dom-change` mutations before
-  the 900ms debounce fires. Only one `trigger` string is stored.
-- **Default chosen:** the first non-`dom-change` trigger in the burst is
-  recorded with its own timestamp; `dom-change` is used only when nothing else
-  fired.
-- **Alternative:** the last trigger; or a list of all triggers in the burst.
-- **Answer:** Extended — first non-dom-change, plus the full burst list. Done: `triggers: string[]` on StateDraft, consecutive repeats collapsed as `dom-change (x12)`, capped at 60 entries.
+## Q11 — Multi-origin export layout
+- **Context:** docs/03 says "grouped by origin when a session spans more than
+  one" without a layout.
+- **Default chosen:** one origin → `flowprint-<host>-<stamp>/` with the seven
+  files and three folders at the root. Several → `flowprint-<stamp>/` with a
+  small root `manifest.json` listing the origins and one complete package per
+  origin in `<host>/`.
+- **Alternative:** a single package with origin-prefixed stems and one merged
+  flow map.
+- **Answer:**
 
-## Q12 — Transitions are tracked per tab *and* frame
-- **Context:** docs/02 says "a previous state exists for the same tab". MCA
-  embeds iframes, each with its own content script and document, so an edge
-  from a top-frame state to an iframe state would compare unrelated field sets.
-- **Default chosen:** last-state bookkeeping keyed by `tabId:frameId`; edges
-  only join states from the same document. Net entries from an iframe fall
-  back to the top frame's last state for `stateIdAtTime` if the iframe has none.
-- **Alternative:** key by tab only and accept cross-frame edges.
-- **Answer:** Confirmed — inferred links flagged. Done: `stateIdInferred: true` on NetEntry when an iframe's call was attributed to the top frame's state; shown in the HAR entry comment.
+## Q12 — `playwright-skeleton.ts` declares its own `Page` type
+- **Context:** docs/07 says the skeleton must type-check as TypeScript. An
+  `import type { Page } from '@playwright/test'` fails unless Playwright is
+  installed next to it.
+- **Default chosen:** a minimal structural `type Page = { fill…; click…; … }`
+  with a comment showing the one-line swap to the real import.
+- **Alternative:** the real import and a note in the brief that it needs
+  `npm i -D @playwright/test` to check.
+- **Answer:**
 
-## Q13 — Extra bookkeeping keys and fields beyond docs/01
-- **Context:** transitions and dependencies need a home, and the worker needs
-  the last state per tab across restarts.
-- **Default chosen:** `dc:transitions`, `dc:deps`, `dc:tabs` keys; `tabId` and
-  `frameId` fields on StateRecord and NetEntry (kept in the export since they
-  help correlate frames); counters in `dc:meta`.
-- **Alternative:** fold transitions/deps into `dc:meta`; strip `tabId`/
-  `frameId` at export.
-- **Answer:** Confirmed.
+## Q13 — Offscreen document is created per export and closed after
+- **Context:** docs/09 Q14 adds the `offscreen` permission for blob URLs.
+- **Default chosen:** created lazily at export start, every blob URL revoked
+  after its download completes (or times out at 60s), document closed in
+  `finally`. Export waits for each download to reach `complete` before the
+  next, which also drives the Q15 prompt detection.
+- **Alternative:** keep the document alive for the session; fire downloads
+  without waiting and revoke on a timer.
+- **Answer:**
 
-## Q14 — Export writes data: URLs from the service worker
-- **Context:** `chrome.downloads.download` needs a URL. MV3 service workers
-  have no `URL.createObjectURL`, and the permission list in docs/06 does not
-  include `offscreen`.
-- **Default chosen:** base64 `data:` URLs built in the worker. Fine for JSON,
-  HAR and PNGs; a very large DOM snapshot (many MB inflated) may be refused by
-  Chrome. Failures are counted and reported, never fatal.
-- **Alternative:** add the `offscreen` permission and write blobs from an
-  offscreen document; or write DOM files gzipped (`.html.gz`) to keep them small.
-- **Answer:** Changed — DOM exports stay gzipped as `.html.gz`. Done: written straight from storage as `application/gzip`; gunzip step removed; docs/03, README, SUMMARY.md and manifest warnings updated.
+## Q14 — docs/06 P0 permission list vs docs/09 Q14
+- **Context:** docs/06 lists five permissions; docs/09 Q14 requires
+  `offscreen`. docs/09 is the later, resolved decision.
+- **Default chosen:** `offscreen` added; the other five unchanged.
+- **Alternative:** none — flagged only so the manifest diff is expected.
+- **Answer:**
 
-## Q15 — "Ask where to save" prompts once per file
-- **Context:** docs/03 notes Chrome prompts per file unless the setting is off.
-  With 60+ files that is unusable.
-- **Default chosen:** `saveAs: false` on every download and a README step
-  telling the user to switch off "Ask where to save each file before
-  downloading" for the session.
-- **Alternative:** detect the prompt storm (first download takes >5s) and abort
-  with a panel message.
-- **Answer:** Extended — saveAs false, uniquify, warn but never abort. Done: a download taking >5s sets `exportProgress.warning`; the panel shows it during and after export; README step added.
-
-## Q16 — Field-map key vs signature key
-- **Context:** docs/02 signature uses `id || name || formControlName || label`;
-  docs/03 says the field map is keyed by "the most stable identifier". Those
-  differ when an id is auto-generated.
-- **Default chosen:** field map key order is formControlName → authored id →
-  name → label; dependencies/transitions keep the signature key and are joined
-  to map keys through a lookup table at export time.
-- **Alternative:** use the signature key everywhere for simplicity.
-- **Answer:** Confirmed — altKeys recorded. Done: `altKeys: string[]` on every FieldMapEntry (id, name, formControlName, label seen across states, minus the key).
-
-## Q17 — Non-native dropdowns never produce a `change:` trigger
-- **Context:** the `change` listener only fires for native `select`, radio and
-  checkbox controls. If MCA V3 renders Angular Material `mat-select` or a
-  custom listbox, choosing an option arrives as `click:<option text>` plus
-  `dom-change`, so dependent-dropdown detection (which keys off `change:`)
-  misses it.
-- **Default chosen:** spec-literal triggers. The transition still records
-  `optionsChanged` on native selects that reload, and the summary says when no
-  dependencies were found.
-- **Alternative:** treat `click:` on an element inside `[role="listbox"]` /
-  `[role="option"]` as `change:<closest field key>`.
-- **Answer:** Changed — custom listbox clicks become change triggers. Done: observe.js maps a click on `[role=option]`, `.mat-option`, `.mat-mdc-option`, `.ng-option`, `.dropdown-item`, `.select2-results__option` to `change:<owner field key>`, resolving the owner via aria-owns/aria-controls, then the field wrapper, then the listbox id.
-
-## Q18 — Pause is also enforced in the worker, and drops in-flight entries
-- **Context:** docs/04 says the content script checks the flag before building
-  a StateRecord. Messages already in flight when Pause is clicked would still
-  land.
-- **Default chosen:** the worker re-checks `recording` before storing any
-  state or net entry, so nothing arrives after Pause. Net entries are also
-  dropped at the content script while paused.
-- **Alternative:** accept in-flight entries so a paused session is exactly
-  "everything up to the click".
+## Q15 — Verification gaps against docs/02, 03, 08
+- **Context:** P10 re-read. Everything named is produced. Extras beyond the
+  spec: `triggers[]`, `scroll`, `usesShadowDom`, `opaqueRegions`,
+  `captureDegraded`, `duplicateOf`, `blockedFrames` on StateRecord;
+  `entry`, `file`, `uniqueInForm`, `shadowPath` on controls; `stateIdInferred`,
+  `error` on NetEntry; `altKeys`, `collidesWith`, `entry` on flow-map
+  controls; `containerSelector` on pagination; `rowSelector` and
+  `shadowPath` on tables; `selector` on buttons. One naming choice: docs/02
+  says `triggerTimestamp`, docs/03 says `triggerAt` — `triggerAt` is used
+  because docs/03 is the output contract.
+- **Default chosen:** keep the extras; they are all additive.
+- **Alternative:** strip to the literal schema at export.
 - **Answer:**
