@@ -1,30 +1,32 @@
-/* MAIN-world hook — docs/02 "Network capture". Runs in the page's own JS realm
-   at document_start so it can wrap fetch and XMLHttpRequest before the portal's
-   Angular bundle loads. Posts NetDraft shapes to the isolated content script via
-   window.postMessage. It has no chrome.* access and must never alter what the
-   page sees: same response object, same errors. History patching lives in
-   nav-hook.js.
+/* MAIN-world hooks — docs/01, docs/02 "Network capture", docs/09 Q7/Q8.
+   Runs in the page's own JS realm at document_start so it can wrap fetch,
+   XMLHttpRequest and history before the app bundle loads, and can see page
+   globals for framework detection. It has no chrome.* access, keeps no
+   captured data, and must never alter what the page sees: same response
+   object, same errors, same history behaviour.
 
-   Bodies are truncated here but scrubbed in the isolated world (redact.js),
-   which is still capture time — nothing reaches storage unscrubbed. */
+   Everything goes out through window.postMessage with a `__fp` envelope. When
+   no content script is listening (origin not consented) the messages are
+   simply dropped by the browser. Bodies are truncated here and scrubbed in
+   the isolated world before storage. */
 (() => {
-  if (window.__mcadcHooked) return;
-  window.__mcadcHooked = true;
+  if (window.__fpHooked) return;
+  window.__fpHooked = true;
 
   const MAX_REQ = 2000; // CAPS.REQUEST_BODY_CHARS
   const MAX_RES = 4000; // CAPS.RESPONSE_BODY_CHARS
-  const MAX_READ_BYTES = 2 * 1024 * 1024; // do not clone-read huge downloads
-  const BODY_READ_TIMEOUT_MS = 5000; // Q8: post without the body rather than never
-  const TEXT_MIME_RE = /^(text\/|application\/(json|xml|x-www-form-urlencoded|javascript|ld\+json|problem\+json)|.*\+(json|xml))/i;
+  const MAX_READ_BYTES = 2 * 1024 * 1024;
+  const BODY_READ_TIMEOUT_MS = 5000;
+  const TEXT_MIME_RE = /^(text\/|application\/(json|xml|x-www-form-urlencoded|javascript|ld\+json|problem\+json|graphql)|.*\+(json|xml))/i;
 
   /**
-   * @param {MCADCWindowMessage} msg
+   * @param {FPWindowMessage} msg
    */
   const post = (msg) => {
     try {
       window.postMessage(msg, location.origin);
     } catch {
-      /* structured-clone failure: drop, never throw into the page */
+      /* structured-clone failure or opaque origin: drop, never throw into the page */
     }
   };
 
@@ -50,9 +52,7 @@
       if (body instanceof URLSearchParams) return body.toString();
       if (body instanceof FormData) {
         const parts = [];
-        for (const [k, v] of body.entries()) {
-          parts.push(`${k}=${v instanceof Blob ? `<file ${v.size} bytes>` : String(v)}`);
-        }
+        for (const [k, v] of body.entries()) parts.push(`${k}=${v instanceof Blob ? `<file ${v.size} bytes>` : String(v)}`);
         return parts.join('&');
       }
       if (body instanceof Blob) return `<Blob ${body.size} bytes ${body.type}>`;
@@ -86,7 +86,7 @@
    * @param {Headers} h
    * @returns {{ name: string, value: string }[]}
    */
-  const headersFromResponse = (h) => {
+  const headersFromHeaders = (h) => {
     const out = [];
     try {
       for (const [name, value] of h.entries()) out.push({ name, value });
@@ -97,7 +97,7 @@
   };
 
   /**
-   * @param {string} raw   output of getAllResponseHeaders()
+   * @param {string} raw   getAllResponseHeaders() output
    * @returns {{ name: string, value: string }[]}
    */
   const headersFromRaw = (raw) =>
@@ -107,9 +107,7 @@
       .filter(Boolean)
       .map((line) => {
         const i = line.indexOf(':');
-        return i < 0
-          ? { name: line.trim(), value: '' }
-          : { name: line.slice(0, i).trim(), value: line.slice(i + 1).trim() };
+        return i < 0 ? { name: line.trim(), value: '' } : { name: line.slice(0, i).trim(), value: line.slice(i + 1).trim() };
       });
 
   /**
@@ -143,7 +141,7 @@
     }
   };
 
-  const pageUrl = () => location.href.split('?')[0];
+  const pageUrl = () => location.href.split('?')[0].split('#')[0];
 
   // ---------------------------------------------------------------- fetch
   const origFetch = window.fetch;
@@ -163,9 +161,7 @@
         const req = input instanceof Request ? input : null;
         const url = absolute(req ? req.url : input instanceof URL ? input.href : String(input));
         const method = String((init && init.method) || (req && req.method) || 'GET').toUpperCase();
-        // Only headers the caller set explicitly; browser-added ones are invisible here.
-        const requestHeaders = init && init.headers ? headersFromInit(init.headers) : req ? headersFromResponse(req.headers) : [];
-        const requestBody = truncate(describeBody(init && init.body), MAX_REQ);
+        const requestHeaders = init && init.headers ? headersFromInit(init.headers) : req ? headersFromHeaders(req.headers) : [];
         draft = {
           kind: 'fetch',
           method,
@@ -173,7 +169,7 @@
           status: 0,
           statusText: '',
           requestHeaders,
-          requestBody,
+          requestBody: truncate(describeBody(init && init.body), MAX_REQ),
           responseHeaders: [],
           responseBody: null,
           mimeType: '',
@@ -183,7 +179,6 @@
           error: null,
         };
       } catch {
-        // If we cannot even describe the request, get out of the way entirely.
         return origFetch.call(this, input, init);
       }
 
@@ -193,29 +188,27 @@
       } catch (err) {
         draft.error = String(err);
         draft.durationMs = Math.round(performance.now() - t0);
-        post({ __mcadc: 'net', entry: draft });
+        post({ __fp: 'net', entry: draft });
         throw err;
       }
 
       try {
         draft.status = res.status;
         draft.statusText = res.statusText;
-        draft.responseHeaders = headersFromResponse(res.headers);
+        draft.responseHeaders = headersFromHeaders(res.headers);
         draft.mimeType = mimeOf(draft.responseHeaders);
         draft.durationMs = Math.round(performance.now() - t0);
         const len = contentLength(draft.responseHeaders);
         const readable = (draft.mimeType === '' || TEXT_MIME_RE.test(draft.mimeType)) && (len < 0 || len <= MAX_READ_BYTES);
         if (readable && res.body && !res.bodyUsed) {
-          // Read the clone in the background; the page gets `res` immediately.
-          // One message per call (Q8): whichever of body / error / timeout
-          // lands first posts, the rest are ignored.
+          // One message per call: body, read error, or timeout — first wins.
           let posted = false;
           /** @param {string|null} body */
           const finish = (body) => {
             if (posted) return;
             posted = true;
             draft.responseBody = body;
-            post({ __mcadc: 'net', entry: draft });
+            post({ __fp: 'net', entry: draft });
           };
           const timer = setTimeout(() => finish(`<body read timed out after ${BODY_READ_TIMEOUT_MS}ms>`), BODY_READ_TIMEOUT_MS);
           res
@@ -226,10 +219,10 @@
             .finally(() => clearTimeout(timer));
         } else {
           draft.responseBody = draft.mimeType ? `<${draft.mimeType} body not captured>` : null;
-          post({ __mcadc: 'net', entry: draft });
+          post({ __fp: 'net', entry: draft });
         }
       } catch {
-        post({ __mcadc: 'net', entry: draft });
+        post({ __fp: 'net', entry: draft });
       }
       return res;
     };
@@ -250,7 +243,6 @@
    * @property {string} startedAt
    * @property {number} t0
    */
-
   /** @type {WeakMap<XMLHttpRequest, XhrMeta>} */
   const metas = new WeakMap();
 
@@ -262,13 +254,7 @@
    */
   XHR.open = function (method, url, ...rest) {
     try {
-      metas.set(this, {
-        method: String(method || 'GET').toUpperCase(),
-        url: absolute(String(url || '')),
-        headers: [],
-        startedAt: '',
-        t0: 0,
-      });
+      metas.set(this, { method: String(method || 'GET').toUpperCase(), url: absolute(String(url || '')), headers: [], startedAt: '', t0: 0 });
     } catch {
       /* ignore */
     }
@@ -296,14 +282,14 @@
         try {
           const responseHeaders = headersFromRaw(this.getAllResponseHeaders());
           /** @type {string|null} */
-          let responseBody = null;
+          let responseBody;
           const rt = this.responseType;
           if (rt === '' || rt === 'text') responseBody = truncate(this.responseText, MAX_RES);
           else if (rt === 'json') responseBody = truncate(JSON.stringify(this.response), MAX_RES);
           else if (rt === 'document') responseBody = truncate(this.response?.documentElement?.outerHTML ?? null, MAX_RES);
           else responseBody = `<${rt} body not captured>`;
           post({
-            __mcadc: 'net',
+            __fp: 'net',
             entry: {
               kind: 'xhr',
               method: m.method,
@@ -328,4 +314,89 @@
     }
     return origSend.call(this, body);
   };
+
+  // -------------------------------------------------------------- history
+  // Patched here because an isolated-world patch only sees the isolated
+  // world's own calls; the page router lives in this realm (Q7).
+  for (const fn of /** @type {const} */ (['pushState', 'replaceState'])) {
+    const orig = history[fn];
+    if (typeof orig !== 'function') continue;
+    history[fn] = function (...args) {
+      // @ts-ignore — forwarding the overloaded signature verbatim
+      const r = orig.apply(this, args);
+      post({ __fp: 'nav', kind: fn });
+      return r;
+    };
+  }
+
+  // ------------------------------------------------------------ framework
+  // Globals and expando properties are only visible from this realm. Answered
+  // on request so the content script can ask after the app has booted.
+  const detectFramework = () => {
+    const w = /** @type {Record<string, any>} */ (/** @type {unknown} */ (window));
+    /** @type {Partial<FrameworkInfo>} */
+    const out = { framework: 'plain', version: null, confidence: 'low', webComponents: false };
+    try {
+      const ngEl = document.querySelector('[ng-version]');
+      if (ngEl || w.ng || w.getAllAngularRootElements) {
+        out.framework = 'angular';
+        out.version = ngEl ? ngEl.getAttribute('ng-version') : w.ng && w.ng.VERSION ? String(w.ng.VERSION.full) : null;
+        out.confidence = 'high';
+      } else if (w.__REACT_DEVTOOLS_GLOBAL_HOOK__ || hasExpando(/^__react(Fiber|InternalInstance|Props)\$/)) {
+        out.framework = 'react';
+        const hook = w.__REACT_DEVTOOLS_GLOBAL_HOOK__;
+        try {
+          const renderers = hook && hook.renderers ? Array.from(hook.renderers.values()) : [];
+          out.version = renderers.length && renderers[0].version ? String(renderers[0].version) : null;
+        } catch {
+          /* ignore */
+        }
+        out.confidence = 'high';
+      } else if (w.__VUE__ || w.Vue || hasExpando(/^__vue(_app)?__$/)) {
+        out.framework = 'vue';
+        out.version = w.Vue && w.Vue.version ? String(w.Vue.version) : w.__VUE__ ? '3' : null;
+        out.confidence = 'high';
+      } else if (document.querySelector('[class*="svelte-"]')) {
+        out.framework = 'svelte';
+        out.confidence = 'medium';
+      } else if (w.jQuery && w.jQuery.fn) {
+        out.framework = 'jquery';
+        out.version = w.jQuery.fn.jquery ? String(w.jQuery.fn.jquery) : null;
+        out.confidence = 'high';
+      }
+      out.webComponents = hasCustomElements();
+    } catch {
+      /* ignore */
+    }
+    return out;
+  };
+
+  /**
+   * @param {RegExp} re
+   * @returns {boolean}
+   */
+  const hasExpando = (re) => {
+    const els = document.querySelectorAll('body, body *');
+    const limit = Math.min(els.length, 300);
+    for (let i = 0; i < limit; i++) {
+      for (const k of Object.keys(els[i])) if (re.test(k)) return true;
+    }
+    return false;
+  };
+
+  const hasCustomElements = () => {
+    const els = document.querySelectorAll('*');
+    const limit = Math.min(els.length, 2000);
+    for (let i = 0; i < limit; i++) {
+      const tag = els[i].tagName.toLowerCase();
+      if (tag.includes('-') && customElements.get(tag)) return true;
+      if (els[i].shadowRoot) return true;
+    }
+    return false;
+  };
+
+  window.addEventListener('message', (ev) => {
+    if (ev.source !== window || !ev.data || ev.data.__fp !== 'detect') return;
+    post({ __fp: 'framework', info: detectFramework() });
+  });
 })();

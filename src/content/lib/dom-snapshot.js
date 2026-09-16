@@ -1,16 +1,20 @@
-/* Sanitised DOM snapshot — docs/02 "DOM snapshot". Clone, strip, truncate,
-   redact, gzip, base64. Never touches the live document.
-   Classic script: exposes window.__MCADC.domSnapshot. */
+/* Sanitised DOM snapshot — docs/02 "DOM snapshot", docs/10 A1. Clone, redact,
+   hollow, strip, truncate, gzip, base64. Open shadow roots are serialised as
+   declarative `<template shadowrootmode="open">` so the file re-renders them.
+   Never touches the live document. Classic script: exposes window.__FP.domSnapshot. */
 (() => {
-  window.__MCADC = window.__MCADC || {};
+  window.__FP = window.__FP || {};
 
   const MAX_ATTR = 300;
   const MAX_DATA_URI = 64;
+  const SHADOW_DEPTH = 10; // CAPS.SHADOW_DEPTH
   const HOLLOW_TAGS = 'script, style, noscript, svg';
   const CONTROL_SEL = 'input, select, textarea, [contenteditable="true"]';
 
+  /** @returns {FPNamespace} */
+  const ns = () => /** @type {FPNamespace} */ (window.__FP);
+
   /**
-   * Remove every comment node under root.
    * @param {Node} root
    */
   const stripComments = (root) => {
@@ -22,12 +26,10 @@
   };
 
   /**
-   * Cap attribute length; data: URIs are useless past the mime prefix.
-   * @param {Element} root
+   * @param {ParentNode} root
    */
   const truncateAttributes = (root) => {
-    const all = [root, ...root.querySelectorAll('*')];
-    for (const el of all) {
+    for (const el of root.querySelectorAll('*')) {
       for (const attr of Array.from(el.attributes)) {
         const v = attr.value;
         if (/^\s*data:/i.test(v)) {
@@ -40,44 +42,8 @@
   };
 
   /**
-   * Rule 1 applied to the snapshot. The clone and the live document yield
-   * controls in the same order, so we pair them by index to read live values
-   * (cloneNode does not copy the `.value` property, only the attribute).
-   * @param {Element} cloneRoot
-   */
-  const redactControls = (cloneRoot) => {
-    const ns = /** @type {MCADCNamespace} */ (window.__MCADC);
-    const live = Array.from(document.querySelectorAll(CONTROL_SEL));
-    const cloned = Array.from(cloneRoot.querySelectorAll(CONTROL_SEL));
-    if (live.length !== cloned.length) {
-      // Tree diverged mid-clone; fall back to attribute-only redaction.
-      for (const el of cloned) hollowControl(el, '<redacted>');
-      return;
-    }
-    for (let i = 0; i < cloned.length; i++) {
-      const src = /** @type {ControlElement} */ (live[i]);
-      const dst = cloned[i];
-      const tag = src.tagName.toLowerCase();
-      const type = (src.getAttribute('type') || '').toLowerCase();
-      if (type === 'hidden') {
-        // Hidden inputs carry tokens and ids; keep the tag, drop the content.
-        dst.setAttribute('value', '<hidden>');
-        continue;
-      }
-      const label = ns.labels.resolveLabel(src).label;
-      if (ns.redact.isCredentialControl(src, label)) {
-        hollowControl(dst, '<redacted>');
-        continue;
-      }
-      const v =
-        tag === 'input' || tag === 'select' || tag === 'textarea'
-          ? /** @type {HTMLInputElement} */ (src).value
-          : src.textContent || '';
-      hollowControl(dst, ns.redact.redactValue(v));
-    }
-  };
-
-  /**
+   * Rewrites one cloned control. Option lists are structure and stay; only
+   * the selection state and typed content are values.
    * @param {Element} el   the cloned control
    * @param {string} replacement
    */
@@ -87,16 +53,92 @@
       el.textContent = replacement;
       el.removeAttribute('value');
     } else if (tag === 'select') {
-      // Option lists are structure, not values; leave them. Only the selection
-      // state is a value, and `selected` is an attribute on the option.
       for (const o of el.querySelectorAll('option[selected]')) o.removeAttribute('selected');
     } else if (tag === 'input') {
       const type = (el.getAttribute('type') || 'text').toLowerCase();
-      if (type === 'radio' || type === 'checkbox' || type === 'submit' || type === 'button') return;
+      if (type === 'radio' || type === 'checkbox' || type === 'submit' || type === 'button' || type === 'reset') return;
       if (replacement) el.setAttribute('value', replacement);
       else el.removeAttribute('value');
     } else {
       el.textContent = replacement;
+    }
+  };
+
+  /**
+   * Rule 2 applied to the clone of one root. The live root and its clone
+   * yield controls in the same order, so they pair by index; cloneNode copies
+   * the `value` attribute but not the live `.value` property.
+   * @param {ParentNode} liveRoot
+   * @param {ParentNode} cloneRoot
+   */
+  const redactControls = (liveRoot, cloneRoot) => {
+    const live = Array.from(liveRoot.querySelectorAll(CONTROL_SEL));
+    const cloned = Array.from(cloneRoot.querySelectorAll(CONTROL_SEL));
+    if (live.length !== cloned.length) {
+      for (const el of cloned) hollowControl(el, '<redacted>');
+      return;
+    }
+    for (let i = 0; i < cloned.length; i++) {
+      const src = /** @type {HTMLElement} */ (live[i]);
+      const dst = cloned[i];
+      const tag = src.tagName.toLowerCase();
+      const type = (src.getAttribute('type') || '').toLowerCase();
+      if (type === 'hidden') {
+        dst.setAttribute('value', '<hidden>');
+        continue;
+      }
+      if (type === 'file') {
+        dst.removeAttribute('value');
+        continue;
+      }
+      const label = ns().labels.resolveLabel(src).label;
+      if (ns().redact.isCredentialControl(src, label)) {
+        hollowControl(dst, '<redacted>');
+        continue;
+      }
+      const v = tag === 'input' || tag === 'select' || tag === 'textarea' ? /** @type {HTMLInputElement} */ (src).value : src.textContent || '';
+      hollowControl(dst, ns().redact.redactValue(v));
+    }
+  };
+
+  /**
+   * A1 — serialise each open shadow root beneath liveRoot into the matching
+   * clone host as a declarative shadow template, recursively.
+   * @param {ParentNode} liveRoot
+   * @param {ParentNode} cloneRoot
+   * @param {number} depth
+   */
+  const inlineShadowRoots = (liveRoot, cloneRoot, depth) => {
+    if (depth >= SHADOW_DEPTH) return;
+    const live = liveRoot.querySelectorAll('*');
+    const cloned = cloneRoot.querySelectorAll('*');
+    if (live.length !== cloned.length) return;
+    for (let i = 0; i < live.length; i++) {
+      const sr = live[i].shadowRoot;
+      if (!sr) continue;
+      const tpl = document.createElement('template');
+      tpl.setAttribute('shadowrootmode', 'open');
+      const frag = tpl.content;
+      for (const child of sr.childNodes) frag.appendChild(child.cloneNode(true));
+      redactControls(sr, frag);
+      inlineShadowRoots(sr, frag, depth + 1);
+      cloned[i].insertBefore(tpl, cloned[i].firstChild);
+    }
+  };
+
+  /**
+   * Hollow, strip and truncate one tree, then each inlined shadow template's
+   * content (a separate fragment that querySelectorAll does not enter).
+   * @param {ParentNode & Node} root
+   * @param {number} depth
+   */
+  const sanitise = (root, depth) => {
+    for (const el of root.querySelectorAll(HOLLOW_TAGS)) el.textContent = '';
+    stripComments(root);
+    truncateAttributes(root);
+    if (depth >= SHADOW_DEPTH) return;
+    for (const tpl of root.querySelectorAll('template[shadowrootmode]')) {
+      sanitise(/** @type {HTMLTemplateElement} */ (tpl).content, depth + 1);
     }
   };
 
@@ -129,12 +171,12 @@
   const snapshot = async () => {
     try {
       const clone = /** @type {HTMLElement} */ (document.documentElement.cloneNode(true));
-      // Redact before hollowing: an <svg foreignObject> can hold controls, and
-      // removing them first would desync the live/clone pairing.
-      redactControls(clone);
-      for (const el of clone.querySelectorAll(HOLLOW_TAGS)) el.textContent = '';
-      stripComments(clone);
-      truncateAttributes(clone);
+      // Redact and inline shadow roots before hollowing: both pair live and
+      // clone elements by index, and hollowing changes nothing structural
+      // but removing nodes would.
+      redactControls(document, clone);
+      inlineShadowRoots(document, clone, 0);
+      sanitise(clone, 0);
       const html = '<!DOCTYPE html>\n' + clone.outerHTML;
       return await gzipBase64(html);
     } catch {
@@ -142,5 +184,5 @@
     }
   };
 
-  window.__MCADC.domSnapshot = { snapshot };
+  window.__FP.domSnapshot = { snapshot };
 })();
