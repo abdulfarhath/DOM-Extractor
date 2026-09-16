@@ -1,8 +1,8 @@
 {
-  "name": "mca-dom-capturer",
+  "name": "flowprint",
   "version": "1.0.0",
   "private": true,
-  "description": "Throwaway Chrome MV3 extension that passively records MCA V3 page structure for the VCFO Assist field map.",
+  "description": "Chrome MV3 extension that passively records the structure and behaviour of a website while a human uses it, for AI-written browser automation.",
   "scripts": {
     "check": "tsc -p jsconfig.json --noEmit"
   },

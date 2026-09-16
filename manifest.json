@@ -1,36 +1,40 @@
 {
   "manifest_version": 3,
-  "name": "MCA DOM Capturer",
+  "name": "Flowprint",
   "version": "1.0.0",
-  "description": "Passively records the structure of MCA V3 pages while you browse. Observes only; never acts on the page; nothing leaves the machine.",
+  "description": "Records how a website is built and behaves while you use it, so browser automation can be written from the export. Observes only. Records nothing until you add a site.",
   "minimum_chrome_version": "116",
-  "permissions": ["storage", "unlimitedStorage", "downloads", "sidePanel", "tabs"],
-  "host_permissions": ["https://www.mca.gov.in/*", "https://mca.gov.in/*"],
+  "permissions": ["storage", "unlimitedStorage", "downloads", "sidePanel", "tabs", "offscreen"],
+  "host_permissions": ["<all_urls>"],
   "background": {
     "service_worker": "src/background/service-worker.js",
     "type": "module"
   },
   "action": {
-    "default_title": "MCA DOM Capturer"
+    "default_title": "Flowprint"
   },
   "side_panel": {
     "default_path": "src/sidepanel/panel.html"
   },
   "content_scripts": [
     {
-      "matches": ["https://www.mca.gov.in/*", "https://mca.gov.in/*"],
-      "js": ["src/main-world/net-hook.js", "src/main-world/nav-hook.js"],
+      "matches": ["<all_urls>"],
+      "js": ["src/main-world/hooks.js"],
       "run_at": "document_start",
       "world": "MAIN",
       "all_frames": true
     },
     {
-      "matches": ["https://www.mca.gov.in/*", "https://mca.gov.in/*"],
+      "matches": ["<all_urls>"],
       "js": [
+        "src/content/packs/generic.js",
+        "src/content/packs/india.js",
         "src/content/lib/redact.js",
+        "src/content/lib/framework.js",
         "src/content/lib/labels.js",
         "src/content/lib/selectors.js",
         "src/content/lib/fields.js",
+        "src/content/lib/lists.js",
         "src/content/lib/dom-snapshot.js",
         "src/content/lib/observe.js",
         "src/content/capture.js"
