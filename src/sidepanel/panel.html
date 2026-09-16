@@ -3,22 +3,36 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>MCA DOM Capturer</title>
+  <title>Flowprint</title>
   <link rel="stylesheet" href="panel.css" />
 </head>
 <body>
   <header class="header">
     <div class="header-title">
       <span class="rec-dot" id="recDot" aria-hidden="true"></span>
-      <h1>MCA DOM Capturer</h1>
+      <h1>Flowprint</h1>
       <span class="version" id="version">v1.0.0</span>
     </div>
-    <div class="header-status mono" id="recStatus">recording</div>
+    <div class="header-status mono" id="recStatus">not recording</div>
   </header>
+
+  <section class="origin" aria-label="Site">
+    <div class="origin-row">
+      <span class="origin-name mono" id="originName">—</span>
+      <button class="btn small" id="btnStop" type="button" hidden>Stop</button>
+    </div>
+    <div id="consentBlock" hidden>
+      <button class="btn primary" id="btnConsent" type="button">Record this site</button>
+      <p class="hint">Nothing is captured on this site until you click. The tab reloads so recording starts from the first request.</p>
+    </div>
+    <div class="hint" id="otherOrigins" hidden></div>
+    <div id="blockedFrames" hidden></div>
+  </section>
 
   <section class="counters" aria-label="Counters">
     <div class="counter"><span class="num" id="cStates">0</span><span class="lbl">Page states</span></div>
     <div class="counter"><span class="num" id="cNet">0</span><span class="lbl">Network calls</span></div>
+    <div class="counter"><span class="num" id="cLists">0</span><span class="lbl">List patterns</span></div>
     <div class="counter"><span class="num" id="cShots">0</span><span class="lbl">Screenshots</span></div>
   </section>
 
@@ -26,18 +40,36 @@
     <button class="btn primary" id="btnToggle" type="button">Pause recording</button>
     <button class="btn" id="btnCapture" type="button">Capture now</button>
     <label class="check"><input type="checkbox" id="chkShots" checked /> Screenshots</label>
+    <details class="advanced" id="advanced">
+      <summary>Advanced</summary>
+      <label class="field">
+        <span>Danger words (comma-separated; buttons whose text matches are flagged)</span>
+        <input type="text" id="dangerWords" class="mono" spellcheck="false" />
+      </label>
+      <div class="field">
+        <span>Redaction packs</span>
+        <label class="check"><input type="checkbox" checked disabled /> generic (always on)</label>
+        <label class="check"><input type="checkbox" id="packIndia" /> india (PAN, Aadhaar, DIN, GSTIN, IFSC, passport)</label>
+      </div>
+    </details>
   </section>
 
   <div class="flash mono" id="flash" hidden></div>
+  <div class="notice mono" id="throttle" hidden>high page activity — DOM triggers throttled; use Capture now</div>
+  <div class="notice mono danger" id="degraded" hidden></div>
 
   <section class="feed" aria-label="Captured states">
-    <div class="empty" id="empty">
-      <p>Recording is on. Browse MCA V3 normally — every distinct page state is captured as you go.</p>
-      <p>Make sure you walk:</p>
+    <div class="empty" id="emptyNoConsent">
+      <p>Open the site you want to record, then click <strong>Record this site</strong> above.</p>
+      <p>Flowprint records nothing anywhere until you do.</p>
+    </div>
+    <div class="empty" id="emptyConsented" hidden>
+      <p>Recording is active. Use the site normally — every distinct page state is captured as you go.</p>
+      <p>Make sure you:</p>
       <ul>
-        <li>every section tab of SPICe+ Part A and Part B</li>
-        <li>a deliberate validation error on each form</li>
-        <li>resuming an existing application by SRN</li>
+        <li>walk every step of the flow you want automated</li>
+        <li>trigger a validation error on purpose</li>
+        <li>page through any list you want scraped</li>
       </ul>
     </div>
     <ul class="list" id="list"></ul>
@@ -49,12 +81,12 @@
     <div class="clear-row">
       <button class="btn quiet" id="btnClear" type="button">Clear session</button>
       <span class="confirm" id="clearConfirm" hidden>
-        Wipe everything?
+        Wipe everything, including recorded sites?
         <button class="btn quiet danger" id="btnClearYes" type="button">Yes, clear</button>
         <button class="btn quiet" id="btnClearNo" type="button">Keep</button>
       </span>
     </div>
-    <p class="foot">Values are never recorded. Review network bodies before sharing. Delete the extension when done.</p>
+    <p class="foot">Values are never recorded. Review network bodies before sharing. Remove the extension when done.</p>
   </section>
 
   <script type="module" src="panel.js"></script>
