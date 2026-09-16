@@ -1,54 +1,62 @@
-/* Label resolution — docs/02 "Label resolution". Eight strategies, in order,
-   recording which one won so the summary can flag weak mappings.
-   Classic script: exposes window.__MCADC.labels. */
+/* Label resolution — docs/02. Eight strategies in order; none depends on a
+   language. Records which strategy won so the summary can flag weak targets.
+   Classic script: exposes window.__FP.labels. */
 (() => {
-  window.__MCADC = window.__MCADC || {};
+  window.__FP = window.__FP || {};
 
   const MAX_LABEL = 120;
   const MAX_SIBLING = 80;
-  const CONTAINER_SEL = '.form-group, .field, mat-form-field, .col, .row';
-  const LABEL_SEL = 'label, .label, .control-label, mat-label';
+  const CONTAINER_SEL = '[class*="form-group"], [class*="form-field"], [class*="field"], mat-form-field, [class*="control"], [class*="input-group"]';
+  const LABEL_SEL = 'label, [class*="label"], mat-label, legend';
 
   /**
-   * Collapse whitespace and cap length. innerText is preferred because it
-   * respects CSS visibility, which matters for Angular's hidden helper labels.
+   * Collapse whitespace and cap length.
    * @param {string|null|undefined} text
    * @param {number} [max]
    * @returns {string}
    */
-  const cleanText = (text, max = MAX_LABEL) =>
-    (text || '').replace(/\s+/g, ' ').trim().slice(0, max);
+  const cleanText = (text, max = MAX_LABEL) => (text || '').replace(/\s+/g, ' ').trim().slice(0, max);
 
   /**
+   * innerText respects CSS visibility, which matters for hidden helper labels;
+   * textContent is the fallback for nodes without layout.
    * @param {Element|null} el
+   * @param {number} [max]
    * @returns {string}
    */
-  const textOf = (el) => {
+  const textOf = (el, max = MAX_LABEL) => {
     if (!el) return '';
     const t = el instanceof HTMLElement ? el.innerText : el.textContent;
-    return cleanText(t);
+    return cleanText(t, max);
   };
 
   /**
-   * Text of a label element minus any nested control's own value, so a
-   * wrapping <label>PAN <input></label> reads as "PAN" not "PAN <10 chars>".
+   * Label text minus trailing required markers (`*`, `:`) — punctuation, not
+   * language, so safe to strip everywhere.
    * @param {Element} labelEl
    * @returns {string}
    */
-  const labelText = (labelEl) => {
-    const t = textOf(labelEl);
-    // Strip trailing required-marker glyphs MCA uses (" *", "*:") for cleaner keys.
-    return t.replace(/\s*[*:]+\s*$/, '').trim();
+  const labelText = (labelEl) => textOf(labelEl).replace(/\s*[*:：]+\s*$/, '').trim();
+
+  /**
+   * The root to resolve ids against — a shadow root scopes its own ids.
+   * @param {Element} el
+   * @returns {Document|ShadowRoot}
+   */
+  const rootOf = (el) => {
+    const r = el.getRootNode();
+    return r instanceof ShadowRoot ? r : document;
   };
 
   /**
-   * @param {ControlElement} el
+   * @param {Element} el
    * @returns {{ label: string, labelSource: LabelSource }}
    */
   const resolveLabel = (el) => {
+    const root = rootOf(el);
     // 1. label[for]
     if (el.id) {
-      const l = document.querySelector(`label[for="${CSS.escape(el.id)}"]`);
+      const l = root.querySelector(`label[for="${CSS.escape(el.id)}"]`);
       const t = l ? labelText(l) : '';
       if (t) return { label: t, labelSource: 'for' };
     }
@@ -61,15 +69,13 @@
     // 3. aria-labelledby — may reference several ids
     const by = el.getAttribute('aria-labelledby');
     if (by) {
-      const t = cleanText(
-        by.split(/\s+/).map((id) => textOf(document.getElementById(id))).filter(Boolean).join(' ')
-      );
+      const t = cleanText(by.split(/\s+/).map((id) => textOf(root.getElementById(id))).filter(Boolean).join(' '));
       if (t) return { label: t, labelSource: 'aria-labelledby' };
     }
     // 4. aria-label
     const aria = cleanText(el.getAttribute('aria-label'));
     if (aria) return { label: aria, labelSource: 'aria-label' };
-    // 5. nearest label-ish element inside the closest container
+    // 5. label-ish element inside the closest form-field container
     const box = el.closest(CONTAINER_SEL);
     if (box) {
       const lab = box.querySelector(LABEL_SEL);
@@ -89,5 +95,5 @@
     return { label: '', labelSource: 'none' };
   };
 
-  window.__MCADC.labels = { resolveLabel, cleanText };
+  window.__FP.labels = { resolveLabel, cleanText, textOf };
 })();

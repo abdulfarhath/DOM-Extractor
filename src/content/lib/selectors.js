@@ -1,15 +1,24 @@
-/* Selector candidates + stability ranking — docs/02 "Selector candidates".
-   Classic script: exposes window.__MCADC.selectors. */
+/* Selector candidates + stability ranking — docs/02 "Selector candidates",
+   docs/09 Q2/Q5, docs/10 A1. Framework-aware ordering, generated-id rejection,
+   uniqueness checked against the element's own root (document or shadow root)
+   and against its closest form. Also the general-purpose selector builder used
+   for containers, items and buttons.
+   Classic script: exposes window.__FP.selectors. */
 (() => {
-  window.__MCADC = window.__MCADC || {};
+  window.__FP = window.__FP || {};
 
-  /** Framework-minted id prefixes. These change between page loads. */
-  const AUTOGEN_PREFIX_RE = /^(mat-|cdk-|ng-|ember|react-|:r)/i;
-  /** `input-12`, `field_3`, `ctl:7` — a separator then a bare counter. */
+  const MAX_HOST_DEPTH = 10; // CAPS.SHADOW_DEPTH
+  const TESTID_ATTRS = ['data-testid', 'data-test', 'data-cy', 'data-qa', 'data-test-id', 'data-automation-id'];
+
+  /** Framework-minted id prefixes; these change between page loads. */
+  const AUTOGEN_PREFIX_RE = /^(mat-|cdk-|ng-|ember|react-|:r|radix-|headlessui-|downshift-|rc_|rc-|el-id-|v-|__)/i;
+  /** `input-12`, `field_3`, `ctl:7` — a separator then a bare counter. `address1` is authored. */
   const TRAILING_COUNTER_RE = /[-_:.]\d+$/;
-  /** UUID, or a long hex / base36 blob with no readable word in it. */
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   const HASH_RE = /^(?:[0-9a-f]{16,}|[a-z0-9]{24,})$/i;
+
+  /** Classes that carry state or a build hash are useless as anchors. */
+  const UNSTABLE_CLASS_RE = /^(?:ng-|mat-|cdk-|css-|sc-|jss\d|Mui.*-\d|svelte-|is-|has-|js-)|(?:active|selected|focus|hover|open|show|hidden|disabled|touched|dirty|pristine|valid|invalid|expanded|collapsed)$|[0-9a-f]{5,}|\d{3,}|__[A-Za-z0-9]{4,}$/i;
 
   /**
    * Why an id should not anchor a selector, or null if it looks authored.
@@ -26,18 +35,27 @@
   };
 
   /**
-   * Escape a value for use inside a double-quoted CSS attribute selector.
+   * Escape a value for a double-quoted CSS attribute selector.
    * @param {string} v
    * @returns {string}
    */
   const q = (v) => `"${v.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 
   /**
+   * @param {Element} el
+   * @returns {Document|ShadowRoot}
+   */
+  const rootOf = (el) => {
+    const r = el.getRootNode();
+    return r instanceof ShadowRoot ? r : document;
+  };
+
+  /**
    * @param {string} selector
    * @param {ParentNode} root
-   * @returns {number} how many elements match, or -1 if the selector is invalid
+   * @returns {number} matches, or -1 if the selector is invalid
    */
-  const cssCount = (selector, root = document) => {
+  const cssCount = (selector, root) => {
     try {
       return root.querySelectorAll(selector).length;
     } catch {
@@ -46,23 +64,22 @@
   };
 
   /**
+   * XPath only works from the document; inside a shadow root it is skipped.
    * @param {string} xpath
-   * @param {Node} root   when not the document, the absolute `//` is made relative
+   * @param {Node} context
    * @returns {number}
    */
-  const xpathCount = (xpath, root = document) => {
+  const xpathCount = (xpath, context) => {
     try {
-      const expr = root === document ? xpath : xpath.replace(/^\/\//, './/');
-      const r = document.evaluate(expr, root, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
-      return r.snapshotLength;
+      const expr = context === document ? xpath : xpath.replace(/^\/\//, './/');
+      return document.evaluate(expr, context, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null).snapshotLength;
     } catch {
       return -1;
     }
   };
 
   /**
-   * XPath string literal — XPath 1.0 has no escapes, so a label containing both
-   * quote kinds needs concat().
+   * XPath 1.0 string literal; concat() when both quote kinds are present.
    * @param {string} s
    * @returns {string}
    */
@@ -73,107 +90,257 @@
   };
 
   /**
-   * `form > div:nth-of-type(3) > input:nth-of-type(2)` — walks up to the nearest
-   * <form> (or body) so the path is short enough to read.
+   * Up to two classes that look authored and stateless.
+   * @param {Element} el
+   * @returns {string[]}
+   */
+  const stableClasses = (el) => {
+    const raw = typeof el.className === 'string' ? el.className : '';
+    return raw
+      .split(/\s+/)
+      .filter((c) => c && /^[A-Za-z][\w-]{1,39}$/.test(c) && !UNSTABLE_CLASS_RE.test(c))
+      .slice(0, 2);
+  };
+
+  /**
+   * One path segment for `el` among its siblings: tag, stable classes, and
+   * nth-of-type only when the tag+classes are not unique among siblings.
    * @param {Element} el
    * @returns {string}
    */
-  const structuralPath = (el) => {
+  const segment = (el) => {
+    const tag = el.tagName.toLowerCase();
+    const cls = stableClasses(el);
+    const base = tag + cls.map((c) => '.' + CSS.escape(c)).join('');
+    // Direct children of a shadow root have no parentElement, only a parentNode.
+    const parent = /** @type {ParentNode} */ (el.parentElement || el.parentNode || document);
+    const siblings = Array.from(parent.children);
+    const sameTag = siblings.filter((s) => s.tagName === el.tagName);
+    if (sameTag.length === 1) return base;
+    const sameBase = cls.length ? sameTag.filter((s) => cls.every((c) => s.classList.contains(c))) : sameTag;
+    if (sameBase.length === 1) return base;
+    return `${base}:nth-of-type(${sameTag.indexOf(el) + 1})`;
+  };
+
+  /**
+   * `div.card > a.title` — path from just below `ancestor` down to `el`.
+   * @param {Element} el
+   * @param {Element} ancestor
+   * @returns {string}
+   */
+  const relativeSelector = (el, ancestor) => {
     /** @type {string[]} */
     const parts = [];
     /** @type {Element|null} */
     let cur = el;
-    while (cur && cur !== document.body && cur !== document.documentElement) {
-      const tag = cur.tagName.toLowerCase();
-      if (tag === 'form') {
-        parts.unshift('form');
-        break;
-      }
-      /** @type {Element|null} */
-      const parent = cur.parentElement;
-      let nth = 1;
-      if (parent) {
-        let sib = cur.previousElementSibling;
-        while (sib) {
-          if (sib.tagName === cur.tagName) nth++;
-          sib = sib.previousElementSibling;
-        }
-      }
-      parts.unshift(`${tag}:nth-of-type(${nth})`);
-      cur = parent;
+    while (cur && cur !== ancestor) {
+      parts.unshift(segment(cur));
+      cur = cur.parentElement;
     }
-    if (parts[0] !== 'form') parts.unshift('body');
     return parts.join(' > ');
   };
 
   /**
-   * @param {ControlElement} el
+   * Nearest ancestor (or self) that carries a test id or an authored id.
+   * @param {Element} el
+   * @param {ParentNode} scope
+   * @returns {{ el: Element, sel: string }|null}
+   */
+  const anchorFor = (el, scope) => {
+    /** @type {Element|null} */
+    let cur = el;
+    while (cur && cur !== scope) {
+      for (const a of TESTID_ATTRS) {
+        const v = cur.getAttribute(a);
+        if (v) {
+          const sel = `[${a}=${q(v)}]`;
+          if (cssCount(sel, scope) === 1) return { el: cur, sel };
+        }
+      }
+      if (cur.id && !looksAutoGenerated(cur.id)) {
+        const sel = `#${CSS.escape(cur.id)}`;
+        if (cssCount(sel, scope) === 1) return { el: cur, sel };
+      }
+      cur = cur.parentElement;
+    }
+    return null;
+  };
+
+  /**
+   * Structural path from the nearest anchored ancestor (or the root) to `el`.
+   * @param {Element} el
+   * @param {ParentNode} scope
+   * @returns {string}
+   */
+  const structuralPath = (el, scope) => {
+    const anchor = anchorFor(el, scope);
+    if (anchor) {
+      if (anchor.el === el) return anchor.sel;
+      return `${anchor.sel} > ${relativeSelector(el, anchor.el)}`;
+    }
+    if (scope instanceof Document) {
+      const top = document.body || document.documentElement;
+      if (el !== top && top.contains(el)) return `body > ${relativeSelector(el, top)}`;
+    }
+    // Shadow root (or an element outside body): path from the root's own children.
+    /** @type {string[]} */
+    const parts = [];
+    /** @type {Element|null} */
+    let cur = el;
+    while (cur) {
+      parts.unshift(segment(cur));
+      cur = cur.parentElement;
+    }
+    return parts.join(' > ');
+  };
+
+  /**
+   * Best single selector for any element within `scope` (its own root by
+   * default). Used for containers, items, buttons and shadow hosts.
+   * @param {Element} el
+   * @param {ParentNode} [scope]
+   * @returns {string}
+   */
+  const forElement = (el, scope) => {
+    const root = scope || rootOf(el);
+    for (const a of TESTID_ATTRS) {
+      const v = el.getAttribute(a);
+      if (v) {
+        const sel = `[${a}=${q(v)}]`;
+        if (cssCount(sel, root) === 1) return sel;
+      }
+    }
+    if (el.id && !looksAutoGenerated(el.id)) {
+      const sel = `#${CSS.escape(el.id)}`;
+      if (cssCount(sel, root) === 1) return sel;
+    }
+    const tag = el.tagName.toLowerCase();
+    const cls = stableClasses(el);
+    if (cls.length) {
+      const sel = tag + cls.map((c) => '.' + CSS.escape(c)).join('');
+      if (cssCount(sel, root) === 1) return sel;
+    }
+    for (const a of ['name', 'aria-label', 'role']) {
+      const v = el.getAttribute(a);
+      if (v) {
+        const sel = `${tag}[${a}=${q(v)}]`;
+        if (cssCount(sel, root) === 1) return sel;
+      }
+    }
+    return structuralPath(el, root);
+  };
+
+  /**
+   * Host selectors from the document down to the element's shadow root (A1).
+   * Empty for light DOM.
+   * @param {Element} el
+   * @returns {string[]}
+   */
+  const hostPath = (el) => {
+    /** @type {string[]} */
+    const path = [];
+    let node = el.getRootNode();
+    let depth = 0;
+    while (node instanceof ShadowRoot && depth < MAX_HOST_DEPTH) {
+      const host = node.host;
+      path.unshift(forElement(host, rootOf(host)));
+      node = host.getRootNode();
+      depth++;
+    }
+    return path;
+  };
+
+  /**
+   * @param {Element} el
    * @param {string} label
+   * @param {FrameworkInfo} framework
    * @returns {SelectorSet}
    */
-  const buildSelectors = (el, label) => {
+  const buildSelectors = (el, label, framework) => {
+    const root = rootOf(el);
+    const inShadow = root instanceof ShadowRoot;
     const tag = el.tagName.toLowerCase();
     const fcn = el.getAttribute('formcontrolname') || '';
     const name = el.getAttribute('name') || '';
+    const aria = el.getAttribute('aria-label') || '';
+    const role = el.getAttribute('role') || '';
     /** @type {string[]} */
     const notes = [];
 
-    /** @type {Array<{ sel: string, rank: 1|2|3|4|5, css: boolean }>} */
-    const candidates = [];
+    /** @typedef {{ sel: string, rank: 1|2|3|4|5|6|7, css: boolean }} Cand */
+    /** @type {Cand[]} */
+    const c = [];
 
+    for (const a of TESTID_ATTRS) {
+      const v = el.getAttribute(a);
+      if (v) c.push({ sel: `[${a}=${q(v)}]`, rank: 1, css: true });
+    }
+    /** @type {Cand|null} */
+    let idCand = null;
     if (el.id) {
       const why = looksAutoGenerated(el.id);
       if (why) notes.push(`${why} (${el.id})`);
-      else candidates.push({ sel: `#${CSS.escape(el.id)}`, rank: 1, css: true });
+      else idCand = { sel: `#${CSS.escape(el.id)}`, rank: 2, css: true };
     }
-    if (fcn) candidates.push({ sel: `[formcontrolname=${q(fcn)}]`, rank: 2, css: true });
-    if (name) candidates.push({ sel: `[name=${q(name)}]`, rank: 3, css: true });
-    if (label) {
-      candidates.push({
-        sel: `//label[normalize-space()=${xpathLiteral(label)}]/following::${tag}[1]`,
-        rank: 4,
-        css: false,
-      });
-    }
-    candidates.push({ sel: structuralPath(el), rank: 5, css: true });
+    /** @type {Cand|null} */
+    const bindCand = framework.framework === 'angular' && fcn ? { sel: `[formcontrolname=${q(fcn)}]`, rank: 3, css: true } : null;
+    /** @type {Cand|null} */
+    const nameCand = name ? { sel: `[name=${q(name)}]`, rank: 4, css: true } : null;
+    /** @type {Cand|null} */
+    const ariaCand = aria ? { sel: role ? `[role=${q(role)}][aria-label=${q(aria)}]` : `${tag}[aria-label=${q(aria)}]`, rank: 5, css: true } : null;
 
-    // Pick the first candidate that is unique. A non-unique high-rank candidate
-    // is still kept as a fallback because it is often unique in a sub-tree.
-    let primaryIdx = -1;
-    /** @type {number[]} */
-    const counts = candidates.map((c) => (c.css ? cssCount(c.sel) : xpathCount(c.sel)));
-    for (let i = 0; i < candidates.length; i++) {
-      if (counts[i] === 1) {
-        primaryIdx = i;
-        break;
-      }
-      if (counts[i] > 1) notes.push(`${candidates[i].sel} matches ${counts[i]} elements`);
+    // Framework-aware ordering (docs/02): Angular promotes the binding above
+    // the id; React/Vue push a suspicious-looking id below the name.
+    const suspiciousId = idCand && (framework.framework === 'react' || framework.framework === 'vue') && (/\d/.test(el.id) || el.id.length < 3);
+    if (suspiciousId) notes.push(`id demoted on ${framework.framework}: looks generated (${el.id})`);
+    if (framework.framework === 'angular') {
+      if (bindCand) c.push(bindCand);
+      if (idCand) c.push(idCand);
+    } else if (suspiciousId) {
+      if (nameCand) c.push(nameCand);
+      if (idCand) c.push(idCand);
+    } else {
+      if (idCand) c.push(idCand);
+      if (bindCand) c.push(bindCand);
+    }
+    if (nameCand && !c.includes(nameCand)) c.push(nameCand);
+    if (ariaCand) c.push(ariaCand);
+    if (label && !inShadow) {
+      c.push({ sel: `//label[normalize-space()=${xpathLiteral(label)}]/following::${tag}[1]`, rank: 6, css: false });
+    }
+    c.push({ sel: structuralPath(el, root), rank: 7, css: true });
+
+    const form = el.closest('form, [role="form"]');
+    const counts = c.map((x) => (x.css ? cssCount(x.sel, root) : xpathCount(x.sel, document)));
+    const formCounts = form ? c.map((x) => (x.css ? cssCount(x.sel, form) : xpathCount(x.sel, form))) : null;
+
+    // First document-unique candidate wins; else first form-unique; else first.
+    let primaryIdx = counts.findIndex((n) => n === 1);
+    let viaForm = false;
+    if (primaryIdx === -1 && formCounts) {
+      primaryIdx = formCounts.findIndex((n) => n === 1);
+      viaForm = primaryIdx !== -1;
     }
     if (primaryIdx === -1) primaryIdx = 0;
+    for (let i = 0; i < primaryIdx; i++) if (counts[i] > 1) notes.push(`${c[i].sel} matches ${counts[i]} elements`);
 
-    const primary = candidates[primaryIdx];
+    const primary = c[primaryIdx];
     const unique = counts[primaryIdx] === 1;
+    const uniqueInForm = formCounts ? formCounts[primaryIdx] === 1 : null;
     /** @type {SelectorStability} */
-    let stability = primary.rank <= 2 ? 'stable' : primary.rank === 3 ? 'likely' : 'fragile';
+    let stability = primary.rank <= 2 ? 'stable' : primary.rank <= 5 ? 'likely' : 'fragile';
     if (!unique) {
-      stability = 'fragile';
-      notes.push('primary selector is not unique on the page');
+      // Q5: unique inside its form is `likely`, not `fragile`.
+      stability = uniqueInForm ? 'likely' : 'fragile';
+      notes.push(uniqueInForm ? 'unique within its form, not the document' : 'primary selector is not unique on the page');
     }
-
-    // Q5: document-wide uniqueness decides stability; form-scoped uniqueness is
-    // recorded alongside so a downstream tool can scope its query instead.
-    const form = el.closest('form');
-    /** @type {boolean|null} */
-    let uniqueInForm = null;
-    if (form) {
-      const n = primary.css ? cssCount(primary.sel, form) : xpathCount(primary.sel, form);
-      uniqueInForm = n === 1;
-      if (!unique && uniqueInForm) notes.push('unique within its enclosing form');
-    }
+    if (viaForm) notes.push('scope queries to the enclosing form');
+    if (inShadow) notes.push('inside open shadow roots; query each host in shadowPath in order');
 
     return {
       primary: primary.sel,
-      fallbacks: candidates.filter((_, i) => i !== primaryIdx).map((c) => c.sel),
+      fallbacks: c.filter((_, i) => i !== primaryIdx).map((x) => x.sel),
+      shadowPath: inShadow ? hostPath(el) : [],
       stability,
       unique,
       uniqueInForm,
@@ -181,5 +348,5 @@
     };
   };
 
-  window.__MCADC.selectors = { buildSelectors, looksAutoGenerated };
+  window.__FP.selectors = { buildSelectors, forElement, hostPath, rootOf, looksAutoGenerated, relativeSelector };
 })();
