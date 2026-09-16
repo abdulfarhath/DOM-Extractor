@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MCA DOM Capturer</title>
+  <link rel="stylesheet" href="panel.css" />
+</head>
+<body>
+  <header class="header">
+    <div class="header-title">
+      <span class="rec-dot" id="recDot" aria-hidden="true"></span>
+      <h1>MCA DOM Capturer</h1>
+      <span class="version" id="version">v1.0.0</span>
+    </div>
+    <div class="header-status mono" id="recStatus">recording</div>
+  </header>
+
+  <section class="counters" aria-label="Counters">
+    <div class="counter"><span class="num" id="cStates">0</span><span class="lbl">Page states</span></div>
+    <div class="counter"><span class="num" id="cNet">0</span><span class="lbl">Network calls</span></div>
+    <div class="counter"><span class="num" id="cShots">0</span><span class="lbl">Screenshots</span></div>
+  </section>
+
+  <section class="controls" aria-label="Controls">
+    <button class="btn primary" id="btnToggle" type="button">Pause recording</button>
+    <button class="btn" id="btnCapture" type="button">Capture now</button>
+    <label class="check"><input type="checkbox" id="chkShots" checked /> Screenshots</label>
+  </section>
+
+  <div class="flash mono" id="flash" hidden></div>
+
+  <section class="feed" aria-label="Captured states">
+    <div class="empty" id="empty">
+      <p>Recording is on. Browse MCA V3 normally — every distinct page state is captured as you go.</p>
+      <p>Make sure you walk:</p>
+      <ul>
+        <li>every section tab of SPICe+ Part A and Part B</li>
+        <li>a deliberate validation error on each form</li>
+        <li>resuming an existing application by SRN</li>
+      </ul>
+    </div>
+    <ul class="list" id="list"></ul>
+  </section>
+
+  <section class="export" aria-label="Export">
+    <button class="btn primary" id="btnExport" type="button">Export capture</button>
+    <div class="progress mono" id="progress" hidden></div>
+    <div class="clear-row">
+      <button class="btn quiet" id="btnClear" type="button">Clear session</button>
+      <span class="confirm" id="clearConfirm" hidden>
+        Wipe everything?
+        <button class="btn quiet danger" id="btnClearYes" type="button">Yes, clear</button>
+        <button class="btn quiet" id="btnClearNo" type="button">Keep</button>
+      </span>
+    </div>
+    <p class="foot">Values are never recorded. Review network bodies before sharing. Delete the extension when done.</p>
+  </section>
+
+  <script type="module" src="panel.js"></script>
+</body>
+</html>
