@@ -38,8 +38,9 @@ metadata 12px monospace. White on the blue primary, never navy on blue.
    (`--primary`). Clicking expands inline to show headings, step labels, the first
    ten control labels, and any list pattern found. No modal.
 6. **Export block**, pinned to the bottom — "Export capture" primary; during
-   export a progress line "Writing 14 of 63 files"; "Clear session" as a quiet
-   text button with a confirm step.
+   export a progress line "Packing 14 of 63 files", then "Downloading
+   flowprint-….zip…", then "Saved Downloads/flowprint-….zip"; "Clear session"
+   as a quiet text button with a confirm step.
 7. **Footer** — 12px muted: values are never recorded; review network bodies before
    sharing; remove the extension when done.
 

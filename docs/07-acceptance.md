@@ -31,8 +31,8 @@ failure and report it back.
 - [ ] Sample text in list patterns is redacted, not real
 
 ## Exports
-- [ ] Export writes the timestamped folder with all seven top-level files and the
-      three subfolders
+- [ ] Export writes one `flowprint-<host>-<stamp>.zip` that unpacks to the
+      timestamped folder with all seven top-level files and the three subfolders
 - [ ] Stems line up across `states/`, `dom/` and `screens/`
 - [ ] `network.har` imports into DevTools' Network tab without error
 - [ ] `flow-map.json` has one entry per unique control with `sourceField: null`

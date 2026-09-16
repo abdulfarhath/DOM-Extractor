@@ -1,9 +1,11 @@
 /**
- * Export pipeline — docs/03, docs/09 Q14/Q15. One timestamped folder under
- * Downloads, one package per consented origin, written sequentially through
- * chrome.downloads from blob: URLs minted by the offscreen document. The
- * states array is the only thing held whole; snapshots stream one key at a
- * time. Progress lives in module memory and reaches the panel via GET_STATS.
+ * Export pipeline — docs/03, docs/09 Q14/Q15. One zip under Downloads holding
+ * the timestamped folder layout, one package per consented origin. Every
+ * artifact is built here and streamed entry by entry to the offscreen
+ * document, which compresses it into the archive and mints the single blob:
+ * URL for one chrome.downloads call. The states array is the only thing held
+ * whole; snapshots stream one key at a time. Progress lives in module memory
+ * and reaches the panel via GET_STATS.
  */
 import { TOOL_NAME, TOOL_VERSION, TIMING, MSG } from '../../shared/constants.js';
 import * as store from './store.js';
@@ -26,7 +28,7 @@ import { stemFor, exportFolderName, hostSlug } from './naming.js';
 const OFFSCREEN_URL = 'src/offscreen/offscreen.html';
 
 /** @type {ExportProgress} */
-let progress = { active: false, current: 0, total: 0, error: null, warning: null, folder: null };
+let progress = { active: false, phase: 'idle', current: 0, total: 0, error: null, warning: null, folder: null };
 
 /** @returns {ExportProgress} */
 export function getExportProgress() {
@@ -36,7 +38,7 @@ export function getExportProgress() {
 /** @returns {Promise<{ started: boolean, reason?: string }>} */
 export async function runExport() {
   if (progress.active) return { started: false, reason: 'an export is already running' };
-  progress = { active: true, current: 0, total: 0, error: null, warning: null, folder: null };
+  progress = { active: true, phase: 'packing', current: 0, total: 0, error: null, warning: null, folder: null };
   void doExport();
   return { started: true };
 }
@@ -67,7 +69,7 @@ async function ensureOffscreen() {
     await chrome.offscreen.createDocument({
       url: OFFSCREEN_URL,
       reasons: [chrome.offscreen.Reason.BLOBS],
-      justification: 'Create blob URLs for export files; service workers cannot.',
+      justification: 'Build the export zip and its blob URL; service workers cannot mint object URLs.',
     });
   } catch (e) {
     // A racing create from a previous export is fine; anything else is not.
@@ -84,25 +86,47 @@ async function closeOffscreen() {
 }
 
 /**
- * @param {{ text?: string, base64?: string, gzipBase64?: string, mime: string }} payload
- * @returns {Promise<string>}   blob: URL
+ * @param {Record<string, unknown>} msg
+ * @returns {Promise<any>}
  */
-async function makeBlobUrl(payload) {
-  const r = await chrome.runtime.sendMessage({ target: 'offscreen', type: MSG.OFFSCREEN_MAKE_BLOB, ...payload });
-  if (!r || typeof r.url !== 'string') throw new Error((r && r.error) || 'offscreen document did not answer');
-  return r.url;
+async function askOffscreen(msg) {
+  const r = await chrome.runtime.sendMessage({ target: 'offscreen', ...msg });
+  if (!r) throw new Error('offscreen document did not answer');
+  if (r.error) throw new Error(String(r.error));
+  return r;
 }
 
 /** @param {string} url */
 async function revokeBlobUrl(url) {
   try {
-    await chrome.runtime.sendMessage({ target: 'offscreen', type: MSG.OFFSCREEN_REVOKE, url });
+    await askOffscreen({ type: MSG.OFFSCREEN_REVOKE, url });
   } catch {
     /* document gone */
   }
 }
 
-// ------------------------------------------------------------- downloads
+// ---------------------------------------------------------------- entries
+
+/**
+ * One archive entry. A failure is counted, not fatal — a bad snapshot must
+ * not stop the flow map from landing on disk.
+ * @param {string} path   inside the zip, folder included
+ * @param {{ text?: string, base64?: string, gzipBase64?: string, mime: string }} payload
+ * @returns {Promise<boolean>}
+ */
+async function addFile(path, payload) {
+  try {
+    await askOffscreen({ type: MSG.OFFSCREEN_ZIP_ADD, path, text: payload.text, base64: payload.base64, gzipBase64: payload.gzipBase64 });
+    return true;
+  } catch (e) {
+    console.warn('[flowprint] export entry failed:', path, errText(e));
+    return false;
+  } finally {
+    progress.current++;
+  }
+}
+
+// ------------------------------------------------------------- download
 
 /**
  * @param {number} id
@@ -121,38 +145,37 @@ async function waitForDownload(id, timeoutMs) {
     if (!item) return 'gone';
     if (item.state === 'complete') return 'complete';
     if (item.state === 'interrupted') return 'interrupted';
-    await sleep(150);
+    if (!progress.warning && Date.now() - t0 > TIMING.PROMPT_SUSPECT_MS) {
+      progress.warning = 'The download is waiting — if Chrome opened a Save dialog, pick a location to finish.';
+    }
+    await sleep(250);
   }
   return 'timeout';
 }
 
 /**
- * One file. Failures are counted, not fatal — a bad snapshot must not stop
- * the flow map from landing on disk.
- * @param {string} path   relative to Downloads, folder included
- * @param {{ text?: string, base64?: string, gzipBase64?: string, mime: string }} payload
+ * Finish the archive in the offscreen document and download it once.
+ * @param {string} fileName
  * @returns {Promise<boolean>}
  */
-async function writeFile(path, payload) {
-  const t0 = Date.now();
+async function downloadZip(fileName) {
+  progress.phase = 'downloading';
   let url = '';
   try {
-    url = await makeBlobUrl(payload);
-    const id = await chrome.downloads.download({ url, filename: path, conflictAction: 'uniquify', saveAs: false });
+    const r = await askOffscreen({ type: MSG.OFFSCREEN_ZIP_FINISH });
+    url = String(r.url);
+    const id = await chrome.downloads.download({ url, filename: fileName, conflictAction: 'uniquify', saveAs: false });
     const state = await waitForDownload(id, TIMING.DOWNLOAD_WAIT_MS);
-    if (!progress.warning && Date.now() - t0 > TIMING.PROMPT_SUSPECT_MS) {
-      progress.warning =
-        'Chrome seems to be asking where to save each file. Turn off "Ask where to save each file before downloading" in chrome://settings/downloads. The export continues either way.';
+    if (state !== 'complete') {
+      progress.error = `zip download ${state}`;
+      return false;
     }
-    if (state !== 'complete') console.warn('[flowprint] download', path, state);
-    return state === 'complete';
+    return true;
   } catch (e) {
-    console.warn('[flowprint] export write failed:', path, errText(e));
+    progress.error = `zip download failed: ${errText(e)}`;
     return false;
   } finally {
     if (url) await revokeBlobUrl(url);
-    progress.current++;
-    await sleep(TIMING.EXPORT_FILE_GAP_MS);
   }
 }
 
@@ -270,26 +293,28 @@ async function doExport() {
     const bundles = splitByOrigin(consented, states, net, transitions, deps);
     const now = new Date();
     const multi = bundles.length > 1;
+    // The zip unpacks to the same timestamped folder the files used to be written into.
     const root = exportFolderName(bundles.length === 1 ? hostSlug(bundles[0].origin) : null, now);
-    progress.folder = root;
+    progress.folder = `${root}.zip`;
 
-    // Plan the file count up front so the progress line is honest.
+    // Plan the entry count up front so the progress line is honest.
     let total = bundles.length ? 0 : 1;
     for (const b of bundles) total += 7 + b.states.length + b.states.filter((s) => s.domRef).length + b.states.filter((s) => s.screenshotRef).length;
     if (multi) total += 1;
     progress.total = total;
 
     await ensureOffscreen();
+    await askOffscreen({ type: MSG.OFFSCREEN_ZIP_RESET });
 
     if (!bundles.length) {
       // Empty session: still a valid package.
       const empty = manifestFor({ origin: '', states: [], net: [], transitions: [], deps: [] }, meta, [], 0);
-      if (!(await writeFile(`${root}/manifest.json`, json(empty)))) failed++;
+      if (!(await addFile(`${root}/manifest.json`, json(empty)))) failed++;
     }
 
     if (multi) {
       const combined = { tool: TOOL_NAME, version: TOOL_VERSION, exportedAt: now.toISOString(), origins: bundles.map((b) => b.origin), folders: bundles.map((b) => hostSlug(b.origin)) };
-      if (!(await writeFile(`${root}/manifest.json`, json(combined)))) failed++;
+      if (!(await addFile(`${root}/manifest.json`, json(combined)))) failed++;
     }
 
     for (const b of bundles) {
@@ -298,16 +323,16 @@ async function doExport() {
       const selectors = buildSelectorsFile(map);
       const manifest = manifestFor(b, meta, bundles.map((x) => x.origin), map.lists.length);
 
-      if (!(await writeFile(`${dir}/manifest.json`, json(manifest)))) failed++;
-      if (!(await writeFile(`${dir}/AUTOMATION-BRIEF.md`, textFile(buildBrief(b.states, map, meta, b.net))))) failed++;
-      if (!(await writeFile(`${dir}/SUMMARY.md`, textFile(buildSummary(b.states, map, meta, b.net.length))))) failed++;
-      if (!(await writeFile(`${dir}/flow-map.json`, json(map)))) failed++;
-      if (!(await writeFile(`${dir}/selectors.json`, json(selectors)))) failed++;
-      if (!(await writeFile(`${dir}/playwright-skeleton.ts`, textFile(buildSkeleton(b.states, map, selectors), 'text/plain')))) failed++;
-      if (!(await writeFile(`${dir}/network.har`, json(buildHar(b.net))))) failed++;
+      if (!(await addFile(`${dir}/manifest.json`, json(manifest)))) failed++;
+      if (!(await addFile(`${dir}/AUTOMATION-BRIEF.md`, textFile(buildBrief(b.states, map, meta, b.net))))) failed++;
+      if (!(await addFile(`${dir}/SUMMARY.md`, textFile(buildSummary(b.states, map, meta, b.net.length))))) failed++;
+      if (!(await addFile(`${dir}/flow-map.json`, json(map)))) failed++;
+      if (!(await addFile(`${dir}/selectors.json`, json(selectors)))) failed++;
+      if (!(await addFile(`${dir}/playwright-skeleton.ts`, textFile(buildSkeleton(b.states, map, selectors), 'text/plain')))) failed++;
+      if (!(await addFile(`${dir}/network.har`, json(buildHar(b.net))))) failed++;
 
       for (const s of b.states) {
-        if (!(await writeFile(`${dir}/states/${stemFor(s)}.json`, json(s)))) failed++;
+        if (!(await addFile(`${dir}/states/${stemFor(s)}.json`, json(s)))) failed++;
       }
       for (const s of b.states) {
         if (!s.domRef) continue;
@@ -317,7 +342,7 @@ async function doExport() {
           failed++;
           continue;
         }
-        if (!(await writeFile(`${dir}/dom/${stemFor(s)}.html`, { gzipBase64: gz, mime: 'text/html' }))) failed++;
+        if (!(await addFile(`${dir}/dom/${stemFor(s)}.html`, { gzipBase64: gz, mime: 'text/html' }))) failed++;
       }
       for (const s of b.states) {
         if (!s.screenshotRef) continue;
@@ -327,15 +352,17 @@ async function doExport() {
           failed++;
           continue;
         }
-        if (!(await writeFile(`${dir}/screens/${stemFor(s)}.png`, { base64: png, mime: 'image/png' }))) failed++;
+        if (!(await addFile(`${dir}/screens/${stemFor(s)}.png`, { base64: png, mime: 'image/png' }))) failed++;
       }
     }
 
-    if (failed) progress.error = `${failed} of ${progress.total} files failed to write`;
+    if (failed) progress.warning = `${failed} of ${progress.total} entries could not be packed and were skipped`;
+    await downloadZip(`${root}.zip`);
   } catch (e) {
     progress.error = errText(e);
   } finally {
     await closeOffscreen();
+    progress.phase = 'idle';
     progress.active = false;
   }
 }

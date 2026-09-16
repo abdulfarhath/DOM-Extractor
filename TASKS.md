@@ -289,3 +289,37 @@ works through `docs/07-acceptance.md` and answers `QUESTIONS.md` (Q1–Q15).
   `docs/05-privacy.md`, `docs/06-phases.md`, `QUESTIONS.md` (answers filled).
 - Left out: nothing.
 - `npm run check`: pass
+
+## 2026-09-16 — Revision 2 (single zip export)
+- Built: `background/lib/zip.js` — dependency-free ZIP writer: generated
+  CRC-32 table, local headers + central directory + EOCD, UTF-8 names (flag
+  bit 11), method 8 via `CompressionStream('deflate-raw')` for text-like
+  entries, method 0 for `.png`/`.gz`/`.zip`/`.jpg`/`.webp` and entries under
+  64 bytes, duplicate paths suffixed `(2)`; incremental `createZip` /
+  `addEntry` / `finishZip` plus one-shot `buildZip(entries)`. Verified in a
+  scratch run: Python `zipfile.testzip()` and `unzip -t` both clean.
+  `offscreen/offscreen.js` is now an ES module importing `zip.js`: it takes
+  entries one message at a time (`OFFSCREEN_ZIP_ADD`, gunzipping stored DOM
+  snapshots on the way in), finishes the archive (`OFFSCREEN_ZIP_FINISH`)
+  into a blob: URL, and revokes on request. `export.js` builds every
+  artifact exactly as before but streams each into the archive under the
+  unchanged internal layout (timestamped root folder, Q11 `<host>/` packages
+  when multi-origin), then issues one `chrome.downloads.download` for
+  `flowprint-<host>-<stamp>.zip` / `flowprint-<stamp>.zip`, waits for it to
+  settle (up to 5 min), revokes the URL and closes the offscreen document.
+  `ExportProgress` gained `phase` (`packing` | `downloading` | `idle`);
+  `current`/`total` count entries. The Q15 warning now fires when the single
+  download sits longer than 5s ("if Chrome opened a Save dialog, pick a
+  location"). Panel shows "Packing n of m files" → "Downloading …zip" →
+  "Saved Downloads/….zip". README drops the "Ask where to save" step; docs/03
+  export layout, docs/04 export block and the docs/07 export check updated.
+  `TIMING.EXPORT_FILE_GAP_MS` and `OFFSCREEN_MAKE_BLOB` removed.
+- Files: `src/background/lib/zip.js` (new), `src/background/lib/export.js`,
+  `src/offscreen/offscreen.html`, `src/offscreen/offscreen.js`,
+  `src/shared/constants.js`, `src/shared/schema.js`, `src/sidepanel/panel.js`,
+  `README.md`, `docs/03-output-schema.md`, `docs/04-ui-spec.md`,
+  `docs/07-acceptance.md`.
+- Left out: DOM snapshots are still written inflated as `dom/*.html` and
+  deflated into the archive (the `.html.gz` store rule in `zip.js` is there
+  for a future switch); no zip64.
+- `npm run check`: pass

@@ -71,17 +71,14 @@ export const TIMING = Object.freeze({
   DEPENDENCY_WINDOW_MS: 2500,
   /** Side panel poll interval. */
   PANEL_POLL_MS: 1500,
-  /** Gap between sequential chrome.downloads calls during export. */
-  EXPORT_FILE_GAP_MS: 150,
-  /** Q15: a single download slower than this means Chrome is prompting per file. */
+  /** Q15: the zip download taking longer than this means a Save dialog is waiting. */
   PROMPT_SUSPECT_MS: 5000,
-  /** How long export waits for one download to finish before moving on. */
-  DOWNLOAD_WAIT_MS: 60000,
+  /** How long export waits for the zip download to settle. */
+  DOWNLOAD_WAIT_MS: 300000,
 });
 
 /**
- * Message types. Mirrored inline in src/content/capture.js and
- * src/offscreen/offscreen.js.
+ * Message types. Mirrored inline in src/content/capture.js.
  */
 export const MSG = Object.freeze({
   // content → worker
@@ -104,8 +101,10 @@ export const MSG = Object.freeze({
   SET_PACKS: 'fp:set-packs',
   EXPORT: 'fp:export',
   CLEAR: 'fp:clear',
-  // worker ↔ offscreen
-  OFFSCREEN_MAKE_BLOB: 'fp:offscreen-make-blob',
+  // worker ↔ offscreen (export zip)
+  OFFSCREEN_ZIP_RESET: 'fp:offscreen-zip-reset',
+  OFFSCREEN_ZIP_ADD: 'fp:offscreen-zip-add',
+  OFFSCREEN_ZIP_FINISH: 'fp:offscreen-zip-finish',
   OFFSCREEN_REVOKE: 'fp:offscreen-revoke',
 });
 

@@ -448,11 +448,12 @@
 /**
  * @typedef {Object} ExportProgress
  * @property {boolean} active
- * @property {number} current
- * @property {number} total
+ * @property {'idle'|'packing'|'downloading'} phase
+ * @property {number} current   entries added to the zip so far
+ * @property {number} total     entries planned
  * @property {string|null} error
- * @property {string|null} warning
- * @property {string|null} folder
+ * @property {string|null} warning   non-fatal advice, e.g. a Save dialog waiting (Q15)
+ * @property {string|null} folder    the zip file name once known
  */
 
 /**

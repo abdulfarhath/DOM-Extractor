@@ -2,11 +2,16 @@
 
 ## Export layout
 
-One timestamped folder written via `chrome.downloads.download`, one call per file,
-`saveAs: false`. Grouped by origin when a session spans more than one.
+One zip written via a single `chrome.downloads.download`, `saveAs: false`. The
+archive is built in the offscreen document (`src/background/lib/zip.js`:
+deflate for text-like files, store for PNGs) and unpacks to one timestamped
+folder. Grouped by origin when a session spans more than one: the zip is then
+`flowprint-<stamp>.zip` and holds one `<host>/` package per origin plus a root
+`manifest.json` listing them.
 
 ```
-flowprint-<host>-2026-09-16T1430/
+flowprint-<host>-2026-09-16T1430.zip
+└─ flowprint-<host>-2026-09-16T1430/
   manifest.json
   AUTOMATION-BRIEF.md
   SUMMARY.md
@@ -23,8 +28,9 @@ Stem = zero-padded sequence + slug of title or pathname, lowercased,
 non-alphanumerics collapsed to `-`, truncated to 40 chars, identical across the
 three subfolders so files line up.
 
-Write sequentially with a small delay. Report progress to the panel. The README
-tells the user to switch off "Ask where to save each file" first.
+Report progress to the panel as entries are packed, then as the single
+download. One file means Chrome's "Ask where to save" setting costs at most one
+dialog, so the README no longer asks the user to change it.
 
 ## manifest.json
 

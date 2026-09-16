@@ -30,18 +30,7 @@ build; the folder loads as-is.
    it.
 6. Click the puzzle-piece icon in the toolbar and pin **Flowprint**.
 
-## 2. Turn off per-file save prompts
-
-An export writes 50–150 files. Chrome asks where to save *each one* unless you
-switch that off:
-
-1. Go to `chrome://settings/downloads`.
-2. Switch **off** "Ask where to save each file before downloading".
-
-Turn it back on afterwards if you like. If you forget, the export still runs;
-the panel will tell you what is happening.
-
-## 3. Record
+## 2. Record
 
 1. Click the Flowprint icon. A side panel opens. Counters read zero and the dot
    is grey: nothing is being recorded.
@@ -72,11 +61,14 @@ edit the list of words that mark a button as dangerous (submit, pay, confirm…)
 and switch the India redaction pack on or off. It switches on by itself for
 `.in` sites.
 
-## 4. Export
+## 3. Export
 
 1. Click **Export capture**.
-2. The button becomes "Writing 14 of 63 files". Wait for it; about a minute.
-3. Look in Downloads for `flowprint-<site>-<date>T<time>/`:
+2. The button becomes "Packing 14 of 63 files", then "Downloading…". Wait
+   for it; under a minute. If Chrome asks where to save, pick a place — it
+   asks once, for one file.
+3. Look in Downloads for `flowprint-<site>-<date>T<time>.zip`. Unzip it; you
+   get a folder of the same name:
 
 ```
 manifest.json           what was captured, counts, redaction, blind spots
@@ -91,10 +83,10 @@ dom/                    one sanitised HTML per page state, values stripped
 screens/                one PNG per page state (orientation only)
 ```
 
-If you recorded more than one site in a session, the folder is
-`flowprint-<date>T<time>/` with one sub-folder per site.
+If you recorded more than one site in a session, the zip is
+`flowprint-<date>T<time>.zip` and unpacks to one sub-folder per site.
 
-## 5. Review before sharing
+## 4. Review before sharing
 
 Control values, passwords and captcha are never in the export. Network
 response bodies **are**, because dropdown lists and lookups live in them. They
@@ -105,12 +97,12 @@ addresses and free text cannot be scrubbed automatically.**
 Open `network.har` in a text editor, search for names and addresses you know
 were on screen, and replace anything real. Then hand the folder over.
 
-## 6. Hand it to a coding agent
+## 5. Hand it to a coding agent
 
 1. Open `AUTOMATION-BRIEF.md` and fill in **§10 What I want automated**: which
    pages, which controls get values from where, what "done" looks like, what
    must stay manual.
-2. Give the folder to the agent with:
+2. Give the unzipped folder to the agent with:
 
    > Read AUTOMATION-BRIEF.md, then flow-map.json. Build <what you wrote>.
 
@@ -118,12 +110,11 @@ The brief carries the selectors, the flow, the reference data and the known
 weak points, so the agent needs no exploratory page loads. Its §9 states the
 constraints the automation must respect; they are part of the handoff.
 
-## 7. Remove it
+## 6. Remove it
 
 1. In the panel click **Clear session** → **Yes, clear**. This also forgets
    which sites you allowed.
 2. `chrome://extensions` → **Remove** on Flowprint.
-3. Turn "Ask where to save each file" back on if you want it.
 
 Do not leave it installed. It is a one-session capture tool.
 
@@ -136,7 +127,9 @@ Do not leave it installed. It is a one-session capture tool.
   post-first-build additions.
 - `TASKS.md` is the build log; `QUESTIONS.md` holds every judgement call with
   the default taken.
-- Content scripts are classic scripts sharing `window.__FP`; the worker and
-  panel are ES modules. Redaction packs live in `src/content/packs/` — one
+- Content scripts are classic scripts sharing `window.__FP`; the worker,
+  panel and offscreen document are ES modules. The export zip is built by
+  `src/background/lib/zip.js` (no dependencies) inside the offscreen
+  document. Redaction packs live in `src/content/packs/` — one
   file, registered on `window.__FP.packs`, listed in `manifest.json` before
   `redact.js`.

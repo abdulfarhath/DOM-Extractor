@@ -232,13 +232,14 @@ function renderStats(s) {
   if (p.active) {
     ui.btnExport.hidden = true;
     ui.progress.hidden = false;
-    ui.progress.textContent = `Writing ${p.current} of ${p.total} files${p.warning ? ` — ${p.warning}` : ''}`;
+    const line = p.phase === 'downloading' ? `Downloading ${p.folder || 'zip'}…` : `Packing ${p.current} of ${p.total} files`;
+    ui.progress.textContent = `${line}${p.warning ? ` — ${p.warning}` : ''}`;
   } else {
     ui.btnExport.hidden = false;
     ui.btnExport.disabled = false;
     if (exportWasActive || p.error || p.folder) {
       ui.progress.hidden = false;
-      const done = p.error ? `Export finished with problems: ${p.error}` : p.folder ? `Exported to Downloads/${p.folder}` : 'Export finished';
+      const done = p.error ? `Export failed: ${p.error}` : p.folder ? `Saved Downloads/${p.folder}` : 'Export finished';
       ui.progress.textContent = p.warning ? `${done} — ${p.warning}` : done;
     } else {
       ui.progress.hidden = true;

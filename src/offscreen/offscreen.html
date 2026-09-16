@@ -5,7 +5,7 @@
   <title>Flowprint export helper</title>
 </head>
 <body>
-  <!-- Exists only to own blob: URLs during export; service workers cannot create them (docs/09 Q14). -->
-  <script src="offscreen.js"></script>
+  <!-- Exists only to build the export zip and own its blob: URL; service workers cannot mint object URLs (docs/09 Q14). -->
+  <script type="module" src="offscreen.js"></script>
 </body>
 </html>
