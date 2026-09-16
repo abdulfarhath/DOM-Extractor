@@ -1,183 +1,218 @@
 # 02 — Capture specification
 
-This is the contract. Everything else in the extension exists to produce what's
-described here.
+The contract. Everything else exists to produce what's described here.
+
+## Gate
+
+Before anything: if the current origin is not in `fp:origins`, the content script
+returns immediately and installs no listeners. No exceptions.
 
 ## When to capture
 
-Capture is triggered by, and debounced 900ms after, any of:
+Debounced 900ms after any of:
 
 | Trigger | Source | `trigger` value |
 |---|---|---|
-| Initial page load | `document_idle` | `load` |
+| Page load | `document_idle` | `load` |
 | DOM subtree change | MutationObserver on `documentElement` | `dom-change` |
-| Click anywhere | capture-phase listener | `click:<text or id, 40 chars>` |
-| Select / radio / checkbox change | capture-phase listener | `change:<id or name>` |
-| Click on an option in a custom listbox (`[role=option]`, `mat-option`, `ng-option`) | capture-phase click, owner resolved via aria-owns/aria-controls (Q17) | `change:<owner id or name>` |
-| SPA navigation | patched `pushState`/`replaceState`, `popstate`, `hashchange` | `nav:<kind>` |
+| Click | capture-phase listener | `click:<text or id, 40 chars>` |
+| Value change | capture-phase `change` listener | `change:<key>` |
+| SPA navigation | MAIN-world `history` patch, `popstate`, `hashchange` | `nav:<kind>` |
 | Manual | side panel "Capture now" | `manual` |
 
-After the debounce, build a StateRecord and compute its signature. If the
-signature matches the previous capture, discard it. Clicking around a stable page
-must not produce dozens of near-identical records.
+**Trigger attribution:** within one debounce burst, record the first
+non-`dom-change` trigger with its own timestamp. `dom-change` is used only when
+nothing else fired.
 
-**Signature** = `pathname` + `title` + the ordered list of every field's
-`id || name || formControlName || label`. Deliberately excludes values and
-visibility so that typing doesn't create states but revealing a conditional field
-does.
+**Dedupe:** compute a signature; discard if it matches the previous state for the
+same document. `manual` always stores, even when identical.
 
-## What to capture per state
+**Signature** = `pathname` + `title` + ordered list of each control's key. Excludes
+values and visibility. Dedupe additionally compares the joined visible `errors`
+list, so a validation message that adds no fields still produces a state.
 
-### Page level
-- `url` (query string stripped), `pathname`, `title`
-- `inIframe`, and if so the frame's `src`
+## Framework detection
+
+Run once per document, store on the state and use it to rank selectors:
+
+- Angular: `[ng-version]`, `window.ng`, `ng-reflect-*` attributes
+- React: `__REACT_DEVTOOLS_GLOBAL_HOOK__`, `__reactFiber$` keys, `[data-reactroot]`
+- Vue: `window.__VUE__`, `[data-v-]` attributes
+- Svelte: `svelte-` class hashes
+- jQuery: `window.jQuery`
+- otherwise `plain`
+
+Record as `{ framework, version, confidence }`.
+
+## Page-level capture
+
+- `url` (query stripped), `pathname`, `title`, `lang` (`<html lang>`)
+- `origin`, `inIframe`, `frameSrc`
 - `viewport` — width, height, devicePixelRatio
-- `trigger` and `triggerTimestamp`; `triggers` — every trigger in the debounce
-  burst, consecutive repeats collapsed (Q11)
-- `scroll` — window scroll offset; bounding boxes are viewport-relative (Q4)
-- `headings` — `h1..h4, legend, .panel-title, .section-title`, max 40
-- `steps` — wizard/tab labels from `[role="tab"], .nav-tabs li, .mat-tab-label,
-  .step-title, .wizard-step, .breadcrumb li`, in DOM order, with which is active
-- `buttons` — text, id, classes, `disabled`, `visible`, and whether the text
-  matches a danger pattern (`submit|pay|confirm|delete|final`) so the downstream
-  tool knows what never to touch
-- `errors` — visible text from `.error, .invalid-feedback, .text-danger,
-  mat-error, .alert-danger, .validation-message`
-- `notices` — visible text from `.alert, .info, .note`, max 10
+- `framework`
+- `trigger`, `triggerTimestamp`
+- `headings` — `h1..h4, legend, [class*="title"], [class*="heading"]`, max 40
+- `steps` — `[role="tab"], [role="tablist"] > *, .nav-tabs li, [class*="step"],
+  [class*="wizard"], .breadcrumb li` in DOM order, with which is active
+- `buttons` — text, id, classes, `type`, `disabled`, `visible`, plus `danger`
+  when `type="submit"`, or the element sits inside a `<form>` that would submit,
+  or its text matches the configurable danger word list (default English:
+  submit, pay, confirm, delete, remove, final; user-editable in the panel)
+- `errors` — `[class*="error"], [class*="invalid"], [class*="danger"], [role="alert"],
+  mat-error`
+- `notices` — `[class*="alert"], [class*="info"], [class*="note"]`, max 10
+- `authHints` — presence of elements whose text or href matches login/logout/sign
+  affordances, as a crude logged-in/out signal. Text only, never credentials.
 
-### Field level
+## Control-level capture
 
-For every `input` (excluding `type=hidden`), `select`, `textarea`, and
-`[contenteditable="true"]`:
+For every `input` (excluding `type=hidden`), `select`, `textarea`,
+`[contenteditable="true"]`, and ARIA widgets (`[role="combobox"]`,
+`[role="listbox"]`, `[role="checkbox"]`, `[role="radio"]`, `[role="switch"]`):
 
 ```
-index, tag, type,
+index, tag, type, role,
+key,                              // the identity used in signatures
 id, name, formControlName,        // formcontrolname || ng-reflect-name
-label, labelSource,               // how the label was found — see below
-placeholder, ariaLabel, title,
-required, maxLength, minLength, pattern, inputMode,
+dataAttrs: { testid, test, cy, qa, ... all data-* },
+label, labelSource,
+placeholder, ariaLabel, ariaDescribedByText, title,
+required, maxLength, minLength, pattern, inputMode, step, min, max,
 disabled, readOnly, visible,
-boundingBox: {x, y, w, h},
+boundingBox: {x, y, w, h},        // viewport coordinates, matches the screenshot
 classes (120 chars),
-value                              // ALWAYS redacted, see docs/05
-group                              // radio/checkbox: shared name attribute
-optionCount, options[{v, t}]       // selects only, first 60
-checked                            // radio/checkbox only
-selectors: {...}                   // see below
+value,                            // ALWAYS redacted
+group,                            // radio/checkbox shared name
+optionCount, options[{v, t}],     // native selects, first 60
+checked,
+selectors: {...}
 ```
 
-### Label resolution
+### Label resolution — language-agnostic
 
-Try in order and record which one worked in `labelSource`:
+Order, recording which worked in `labelSource`. No strategy may depend on English:
 
 1. `label[for="<id>"]` → `for`
 2. Wrapping `<label>` → `wrap`
-3. `aria-labelledby` target's text → `aria-labelledby`
+3. `aria-labelledby` target text → `aria-labelledby`
 4. `aria-label` → `aria-label`
-5. Nearest `label, .label, .control-label, mat-label` inside the closest
-   `.form-group, .field, mat-form-field, .col, .row` → `container`
+5. Nearest label-ish element inside the closest form-field container
+   (`[class*="form-group"], [class*="field"], mat-form-field, [class*="control"]`) → `container`
 6. Previous sibling element's text if under 80 chars → `sibling`
 7. `placeholder` → `placeholder`
 8. Empty → `none`
 
-`labelSource` matters downstream: a field labelled only by `container` or
-`sibling` is a weaker mapping target and the summary should flag it.
+`labelSource` of `container`, `sibling` or `none` marks a weak mapping target and
+must be flagged in the summary.
 
-### Selector candidates
-
-For each field produce:
+### Selector candidates — framework-aware
 
 ```
 selectors: {
-  primary: "#panNumber",
-  fallbacks: ["[formcontrolname=\"panNumber\"]", "[name=\"pan\"]", "<xpath>"],
+  primary: "[data-testid=\"pan\"]",
+  fallbacks: ["#panNumber", "[formcontrolname=\"panNumber\"]", "<xpath>"],
   stability: "stable" | "likely" | "fragile",
-  notes: "id looks auto-generated"
+  unique: true,
+  notes: ""
 }
 ```
 
-Ranking, best first:
+Base ranking:
 
-1. `#id` — **only if the id looks authored.** Reject as auto-generated if it
-   matches `/^(mat-|cdk-|ng-|ember|react-|:r)/i`, or ends in a bare number that
-   varies, or is a UUID/hash shape. Record the rejection in `notes`.
-2. `[formcontrolname="x"]` — the most reliable thing on an Angular form.
-3. `[name="x"]`.
-4. Label-anchored XPath: `//label[normalize-space()="X"]/following::input[1]`.
-5. Structural path: `form > div:nth-of-type(3) input:nth-of-type(2)`.
+1. Automation attributes — `data-testid`, `data-test`, `data-cy`, `data-qa`
+2. Authored `#id`
+3. Framework binding — `[formcontrolname]` on Angular, `[name]` elsewhere
+4. `[name]`
+5. Accessible name — `[aria-label="…"]` or `[role=…][aria-label=…]`
+6. Label-anchored XPath — `//label[normalize-space()="X"]/following::input[1]`
+7. Structural — `form > div:nth-of-type(3) input:nth-of-type(2)`
 
-`stability` = `stable` if 1 or 2 produced the primary, `likely` if 3, `fragile`
-if 4 or 5. Also mark `fragile` if the primary selector matches more than one
-element on the page — always verify uniqueness with `querySelectorAll().length`.
-Record `uniqueInForm` as well: the same check scoped to the enclosing `<form>`,
-`null` when there is none (Q5). At export, an id seen to differ between
-captures of the same logical field is demoted regardless of shape (Q2).
+On Angular, promote 3 above 2. On React or Vue, demote `#id` if it looks
+generated. `stability` is `stable` for 1–2, `likely` for 3–5, `fragile` for 6–7,
+and always `fragile` when the primary matches more than one element — verify with
+`querySelectorAll().length`.
 
-### DOM snapshot
+**Auto-generated id rejection:** reject ids matching `/^(mat-|cdk-|ng-|ember|react-|:r|radix-)/i`,
+or `/[-_:.]\d+$/` (separator then digits), or a UUID/hash shape. A plain trailing
+digit like `address1` is authored — keep it. Record rejections in `notes`.
 
-One per state, stored separately. Before storing:
+## List, table and pagination capture
 
-- Remove `<script>`, `<style>`, `<noscript>`, `<svg>` inner content (keep the
-  tags so structure is legible)
-- Remove HTML comments
-- Truncate any attribute over 300 chars, and any `data:` URI to 64 chars
-- Replace every `value`, `<textarea>` content, and `contenteditable` text per the
-  redaction rules
-- Gzip via `CompressionStream('gzip')`, store base64
+This is what makes the tool useful for scraping, not just filling.
 
-### Screenshot
+- **Tables** — for each `table`, `[role="table"]`, `[role="grid"]`: the container
+  selector, column headers in order, row count, and one sample row's cell
+  structure with text redacted to `<n chars>`.
+- **Repeated items** — find containers with three or more structurally similar
+  element children (same tag and similar class signature). For each: the container
+  selector, the item selector, item count, and per-item sub-selectors for the
+  distinct text/link/image slots found inside the first item, each with its
+  redacted sample shape. This is exactly what a card parser needs and exactly what
+  a screenshot cannot give.
+- **Pagination** — controls matching `[class*="pag"]`, `[aria-label*="page" i]`,
+  `[rel="next"]`, `[rel="prev"]`, or a run of sibling links whose text is
+  consecutive integers. Record the next/prev selectors and, when present, the
+  total-pages text location.
+- **Downloads** — anchors with a `download` attribute or an href ending in a
+  document extension; record selector, extension, and whether the href is a
+  direct URL or a script-driven handler.
 
-`chrome.tabs.captureVisibleTab` at capture time, PNG, throttled in the service
-worker to one per 600ms with a max queue of 3 — drop, never block. Toggleable
-from the side panel, default on. Iframe captures get one too, labelled
-`screenshotOf: "parent-frame"` because the image is the whole tab (Q1).
+## DOM snapshot
+
+One per state, stored separately. Before gzipping: strip `<script>`, `<style>`,
+`<noscript>` and `<svg>` inner content (keep the tags), remove comments, truncate
+attributes over 300 chars and `data:` URIs to 64 chars, and apply redaction —
+`value="<n chars>"`, hidden inputs `value="<hidden>"`, credential controls
+`value="<redacted>"` with no length.
+
+## Screenshot
+
+`chrome.tabs.captureVisibleTab` at capture time, PNG, throttled in the worker to
+one per 600ms with a max queue of 3 — drop, never block. Toggleable, default on.
+Skipped for iframe states, since the capture would be the parent page.
 
 ## Network capture
 
-Wrap `fetch` and `XMLHttpRequest` in the MAIN world. For every call record:
+Wrap `fetch` and `XMLHttpRequest` in the MAIN world. Per call record `id`, `kind`,
+`method`, `url`, `status`, `statusText`, caller-set request headers, request body
+(truncated 2000, scrubbed), response headers, response body (truncated 4000,
+scrubbed), `mimeType`, `startedAt`, `durationMs`, `pageUrl`, `stateIdAtTime`,
+`tabId`, `frameId`.
 
-```
-id, kind: "fetch"|"xhr", method, url, status, statusText,
-requestHeaders (only those explicitly set by the caller),
-requestBody (truncated 2000, scrubbed),
-responseHeaders, responseBody (truncated 4000, scrubbed),
-mimeType, startedAt, durationMs,
-pageUrl, stateIdAtTime
-```
+Post one message per call, after the body is read from a clone, so the page is
+never delayed. Never swallow errors; always return what the page expected.
 
-Response bodies matter more than usual here: dropdown option lists, NIC code
-lookups, name-availability checks and state/district cascades all live in them.
-Keep them, scrub them, and note in the export manifest that they need a human
-read before sharing.
+Response bodies matter: option lists, lookups, cascade payloads and list data all
+live there. Keep them, scrub them, and state plainly that a human must read them
+before the export is shared.
 
 ## Transitions — the state graph
 
-Whenever a new state is stored and a previous state exists for the same tab,
-record an edge:
+On each new state, if a previous state exists **for the same `tabId:frameId`**:
 
 ```
 { from, to, trigger, urlChanged, fieldsAdded[], fieldsRemoved[],
-  optionsChanged[{fieldId, before, after}], netCallsBetween[ids],
-  errorsAppeared[] }
+  optionsChanged[{key, before, after}], listCountsChanged[{selector, before, after}],
+  netCallsBetween[ids], errorsAppeared[] }
 ```
 
-This is the single most valuable artifact for building the automation, because it
-answers "what actually happens when I click Next" without anyone describing it.
+Edges never join states from different documents. This graph is the most valuable
+artifact in the export: it answers "what happens when I click Next" without anyone
+describing it.
 
-## Dependent-dropdown detection
+## Dependent-control detection
 
-When a `change:<field>` trigger is followed, within 2500ms, by either a network
-call or an `optionsChanged` entry on a different field, record:
+When a `change:<key>` trigger is followed within 2500ms by a network call or an
+`optionsChanged` entry on a different control, record
+`{ sourceKey, targetKeys[], viaNetwork, endpoint?, confidence }` — `high` when a
+network call sits between, `medium` otherwise.
 
-```
-{ sourceField, targetFields[], viaNetwork: true|false, endpoint?, confidence }
-```
+Non-native dropdowns (`mat-select`, custom listboxes) never emit `change`. Treat a
+`click` on an element inside `[role="listbox"]` or `[role="option"]` as
+`change:<closest control key>` so those cascades are caught too.
 
-`confidence` is `high` if a network call sits between them, `medium` otherwise.
-These become the dependency notes in `SUMMARY.md`.
+## Out of scope
 
-## Explicitly out of scope
-
-- Computed styles, CSS, fonts, layout metrics beyond the bounding box.
-- Anything on a non-MCA origin.
-- Replaying, re-executing, or diffing captures across sessions.
+- Computed styles, CSS, fonts, layout beyond the bounding box
+- Replay, diffing across sessions, scheduling
+- Any origin not explicitly consented

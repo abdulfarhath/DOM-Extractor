@@ -1,42 +1,41 @@
-# START-HERE — what to paste into Claude Code
+# START-HERE
 
-Drop this whole folder's contents into the existing `mca-recorder` folder, open
-Claude Code in that folder, and paste the prompt below.
+Unzip this into the folder that holds the prototype, open Claude Code there, and
+paste the prompt below.
 
 ---
 
 ```
 Read CLAUDE.md first, then every file in docs/ in numerical order.
 
-Build the MCA DOM Capturer extension completely, all phases P0 through P9 in
-docs/06-phases.md, in this one session. Do not stop to ask me anything.
+Build Flowprint completely — all phases P0 through P10 in docs/06-phases.md — in
+this one session. Do not stop to ask me anything.
 
 Rules that matter most:
 - No tests, and do not try to run the extension. I test it manually afterwards.
-- Run `npm run check` at the end of every phase. It must pass before you move on.
+- Run `npm run check` at the end of every phase; it must pass before you move on.
 - Append to TASKS.md after every phase.
-- Append every judgement call to QUESTIONS.md with the default you chose. Keep
-  going; don't block.
-- The extension observes only. No code path may click, navigate, fill, or submit.
-- No network egress from the extension, and no dependencies beyond typescript and
-  @types/chrome as devDependencies.
-- Field values are redacted at capture time, always.
+- Append judgement calls to QUESTIONS.md with the default you chose, and keep
+  going. docs/09-resolved.md already answers a batch of these — follow it.
+- Flowprint observes only. No code path may click, navigate, fill, or submit.
+- Nothing site-specific in code: no domain literals, no English-only label logic,
+  no country-specific patterns outside the redaction packs.
+- No network egress, and no dependencies beyond typescript and @types/chrome.
 
-The existing flat files in this folder are a working prototype. Reuse their
-field-extraction and label logic and their MAIN-world/isolated-world split, then
-delete them once the logic lives in src/.
+The flat files in this folder are a working prototype. Reuse their field
+extraction, label resolution, and MAIN-world/isolated-world split, then delete
+them once the logic lives in src/.
 
 When you're done, print a summary of what you built and what's in QUESTIONS.md.
 ```
 
 ---
 
-## After it finishes
+## Using it afterwards
 
-1. Read `QUESTIONS.md`, answer each one under **Answer:**, and tell Claude Code
-   to revise accordingly.
-2. Work through `docs/07-acceptance.md` yourself.
-3. Record a full SPICe+ walkthrough.
-4. Review network bodies for real names and addresses.
-5. Send over the export folder — that's what the VCFO Assist context pack gets
-   built from.
+1. Answer anything in `QUESTIONS.md`, tell Claude Code to revise.
+2. Work through `docs/07-acceptance.md`.
+3. Record a session on whichever site you're automating.
+4. Review `network.har` and the bodies for anything real before sharing.
+5. Hand the export folder plus `AUTOMATION-BRIEF.md` to Claude and describe what
+   you want automated. `docs/08-consuming-output.md` explains that handoff.

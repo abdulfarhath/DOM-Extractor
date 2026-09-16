@@ -1,56 +1,62 @@
 # 07 — Acceptance checklist
 
-For the human, after the build finishes. Not for Claude Code to run — it does not
-test. Work top to bottom; stop at the first failure and report it back.
+For the human, after the build. Claude Code does not run this. Stop at the first
+failure and report it back.
 
 ## Loads
+- [ ] `npm install && npm run check` passes clean
+- [ ] Load unpacked accepts the folder; no manifest or service-worker errors
+- [ ] Toolbar icon opens the side panel
+- [ ] On a random site, the panel shows "Record this site" and counters stay zero
 
-- [ ] `npm install && npm run check` passes with no errors
-- [ ] `chrome://extensions` → Load unpacked accepts the folder with no manifest
-      errors and no service-worker registration error
-- [ ] Clicking the toolbar icon opens the side panel
-- [ ] The panel shows zero counts and the empty-state text
+## Consent
+- [ ] Browsing any site without consenting produces **no** states
+- [ ] Clicking "Record this site" reloads the tab and capture begins
+- [ ] "Stop" halts capture immediately; counters freeze
+- [ ] A second origin can be added in the same session and appears in the export
 
-## Records
+## Records — filling
+- [ ] Loading a form page produces a state within a couple of seconds
+- [ ] Typing does **not** create states; revealing a conditional field does
+- [ ] Clicking between tabs adds states; clicking the same tab twice does not
+- [ ] A deliberately triggered validation error produces a state with `errors`
+- [ ] No password, OTP or captcha field has a stored value or length
+- [ ] No control anywhere shows a real value — all are `<n chars>`
 
-- [ ] Opening `mca.gov.in` produces a first state within a couple of seconds
-- [ ] Logging in produces new states; no state contains your password, and the
-      password field appears as `redactedEntirely`
-- [ ] The captcha field is likewise never captured with content
-- [ ] Clicking between section tabs adds states; clicking the same tab twice does
-      not
-- [ ] Typing into fields does **not** create new states
-- [ ] Revealing a conditional field **does** create a new state
-- [ ] Network counter climbs as the portal makes calls
-- [ ] Screenshot counter climbs, and pausing screenshots stops it
-
-## Content is right
-
-- [ ] Open the panel, expand a state on a real form page: field labels look
-      correct and match what's on screen
-- [ ] No field shows a real value anywhere — all are `<n chars>`
-- [ ] A select field lists its real options
-- [ ] Trigger a validation error deliberately; a state captures it in `errors`
+## Records — extracting
+- [ ] On a page with a table, `lists.tables` has correct headers and row count
+- [ ] On a page with repeated cards, `lists.repeats` has an item selector and
+      per-slot sub-selectors
+- [ ] Paging through a list records pagination selectors and a count change
+- [ ] Sample text in list patterns is redacted, not real
 
 ## Exports
-
-- [ ] Export writes a timestamped folder with `manifest.json`, `SUMMARY.md`,
-      `field-map-draft.json`, `network.har`, and the three subfolders
-- [ ] File stems line up across `states/`, `dom/` and `screens/`
-- [ ] `network.har` opens in Chrome DevTools' Network tab import without error
-- [ ] `SUMMARY.md` reads sensibly cold and its attention list flags at least the
-      duplicate-id problem on the application-history page
-- [ ] `field-map-draft.json` has one entry per unique field with `vcfoField: null`
-- [ ] A DOM file opens in a browser and is recognisably the page, with values
-      stripped
+- [ ] Export writes the timestamped folder with all seven top-level files and the
+      three subfolders
+- [ ] Stems line up across `states/`, `dom/` and `screens/`
+- [ ] `network.har` imports into DevTools' Network tab without error
+- [ ] `flow-map.json` has one entry per unique control with `sourceField: null`
+- [ ] `playwright-skeleton.ts` type-checks as TypeScript and has every fill line
+      commented out
+- [ ] `SUMMARY.md` reads sensibly cold; the attention list flags fragile selectors
+- [ ] `AUTOMATION-BRIEF.md` makes sense to someone who has never seen the site
+- [ ] A DOM file opens in a browser, is recognisably the page, values stripped
 
 ## Cleans up
-
-- [ ] Clear session zeroes every counter and the state list
-- [ ] After clearing, export produces an empty-but-valid manifest rather than
-      throwing
+- [ ] Clear session zeroes everything including consented origins
+- [ ] Export after clearing produces an empty-but-valid manifest, not an error
 
 ## Then
+Review network bodies for real names and addresses before sharing the folder.
 
-Review the network bodies for real names and addresses, replace them, and send
-the folder over.
+## Addendum checks (docs/10)
+- [ ] On a site using web components, controls inside open shadow roots appear
+      with a populated `shadowPath`
+- [ ] A closed shadow root produces an `opaqueRegions` entry, not silence
+- [ ] On a busy SPA the page stays responsive and the panel shows the throttle line
+- [ ] A page with a cross-origin iframe offers to record that origin too
+- [ ] Leaving the browser idle for a minute then clicking does not lose the tab's
+      transition chain
+- [ ] A date-picker field reports `entry.mode: "widget"`
+- [ ] Selecting a file records `accept` and `multiple` but no filename anywhere
+- [ ] Pausing, browsing, then resuming produces no transition edge across the gap

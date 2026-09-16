@@ -2,55 +2,50 @@
 
 ## Export layout
 
-Export writes a folder via `chrome.downloads.download`, one call per file, all
-under a single timestamped directory in the user's Downloads:
+One timestamped folder written via `chrome.downloads.download`, one call per file,
+`saveAs: false`. Grouped by origin when a session spans more than one.
 
 ```
-mca-capture-2026-09-16T1430/
+flowprint-<host>-2026-09-16T1430/
   manifest.json
+  AUTOMATION-BRIEF.md
   SUMMARY.md
-  field-map-draft.json
+  flow-map.json
+  selectors.json
+  playwright-skeleton.ts
   network.har
-  states/
-    0001-home.json
-    0002-spice-part-a.json
-    ...
-  dom/
-    0001-home.html.gz        # gzipped as stored; gunzip to view (Q14)
-    0002-spice-part-a.html.gz
-    ...
-  screens/
-    0001-home.png
-    ...
+  states/   0001-<slug>.json …
+  dom/      0001-<slug>.html …
+  screens/  0001-<slug>.png …
 ```
 
-File stem = zero-padded sequence + slug of the page title or pathname, lowercased,
-non-alphanumerics collapsed to `-`, truncated to 40 chars. The same stem across
-`states/`, `dom/` and `screens/` so files line up.
+Stem = zero-padded sequence + slug of title or pathname, lowercased,
+non-alphanumerics collapsed to `-`, truncated to 40 chars, identical across the
+three subfolders so files line up.
 
-Chrome will prompt once per file unless the user has "ask where to save" off.
-Write files sequentially with a small delay so the queue doesn't get throttled,
-and show progress in the side panel.
+Write sequentially with a small delay. Report progress to the panel. The README
+tells the user to switch off "Ask where to save each file" first.
 
 ## manifest.json
 
 ```json
 {
-  "tool": "MCA DOM Capturer",
+  "tool": "Flowprint",
   "version": "1.0.0",
   "exportedAt": "ISO-8601",
   "sessionStartedAt": "ISO-8601",
-  "counts": { "states": 0, "domSnapshots": 0, "screenshots": 0, "netEntries": 0 },
-  "origins": ["https://www.mca.gov.in"],
+  "origins": ["https://example.com"],
+  "frameworks": [{ "origin": "https://example.com", "framework": "angular", "version": "16" }],
+  "counts": { "states": 0, "domSnapshots": 0, "screenshots": 0, "netEntries": 0,
+              "listPatterns": 0, "transitions": 0, "dependencies": 0 },
   "redaction": {
+    "packs": ["generic", "india"],
     "fieldValues": "redacted at capture",
     "domValues": "redacted at capture",
     "bodies": "pattern-scrubbed, NOT guaranteed clean"
   },
-  "warnings": [
-    "Network response bodies are kept for dropdown data. Review before sharing."
-  ],
-  "harNote": "HAR 1.2 shaped, reconstructed from fetch/XHR wrappers. Timings are approximate and browser-added request headers are absent."
+  "warnings": ["Network response bodies are kept for reference data. Review before sharing."],
+  "harNote": "HAR 1.2 shaped, reconstructed from fetch/XHR wrappers. Timings approximate; browser-added request headers absent."
 }
 ```
 
@@ -58,137 +53,104 @@ and show progress in the side panel.
 
 ```jsonc
 {
-  "id": "st_0007",
-  "seq": 7,
-  "capturedAt": "ISO-8601",
-  "trigger": "click:Next",
-  "triggerTimestamp": "ISO-8601",
-  "triggers": ["click:Next", "dom-change (x12)"],
-  "tabId": 123,
-  "frameId": 0,
-  "url": "https://www.mca.gov.in/...",
-  "pathname": "/...",
-  "title": "SPICe+ Part A",
-  "inIframe": false,
-  "frameSrc": null,
+  "id": "st_0007", "seq": 7, "capturedAt": "ISO-8601",
+  "trigger": "click:Next", "triggerAt": "ISO-8601",
+  "origin": "https://example.com", "url": "…", "pathname": "/…",
+  "title": "Step 2", "lang": "en",
+  "inIframe": false, "frameSrc": null, "tabId": 12, "frameId": 0,
   "viewport": { "w": 1512, "h": 860, "dpr": 2 },
-  "scroll": { "x": 0, "y": 340 },
+  "framework": { "framework": "angular", "version": "16", "confidence": "high" },
   "signature": "…",
   "headings": ["…"],
-  "steps": [{ "text": "Part A", "active": true }],
-  "buttons": [
-    { "text": "Next", "id": "btnNext", "classes": "btn btn-primary",
-      "disabled": false, "visible": true, "danger": false }
-  ],
-  "errors": ["Please enter a valid PAN"],
-  "notices": [],
-  "fieldCount": 34,
-  "fields": [ /* FieldRecord */ ],
-  "domRef": "dc:dom:st_0007",
-  "screenshotRef": "dc:shots:st_0007",
-  "screenshotOf": "page",          // "parent-frame" for iframe states (Q1)
-  "duplicateOf": null,             // previous state id when a manual capture changed nothing (Q10)
-  "netRefs": ["net_0031", "net_0032"]
+  "steps": [{ "text": "Step 2", "active": true }],
+  "buttons": [{ "text": "Next", "id": "btnNext", "type": "button",
+                "disabled": false, "visible": true, "danger": false }],
+  "errors": [], "notices": [], "authHints": { "loggedIn": true, "evidence": "logout affordance" },
+  "controlCount": 34,
+  "controls": [ /* ControlRecord */ ],
+  "lists": { "tables": [], "repeats": [], "pagination": [], "downloads": [] },
+  "domRef": "fp:dom:st_0007",
+  "screenshotRef": "fp:shots:st_0007",
+  "netRefs": ["net_0031"]
 }
 ```
 
-## FieldRecord
+## ControlRecord
+
+Per `docs/02`. `key` is the identity used in signatures and edges. `value` is
+always redacted. `selectors` always present.
+
+## List structures
 
 ```jsonc
-{
-  "index": 12,
-  "tag": "input",
-  "type": "text",
-  "id": "panNumber",
-  "name": "pan",
-  "formControlName": "panNumber",
-  "label": "PAN of the applicant",
-  "labelSource": "for",
-  "placeholder": "ABCDE1234F",
-  "ariaLabel": "",
-  "title": "",
-  "required": true,
-  "maxLength": 10,
-  "minLength": null,
-  "pattern": "[A-Z]{5}[0-9]{4}[A-Z]",
-  "inputMode": null,
-  "disabled": false,
-  "readOnly": false,
-  "visible": true,
-  "boundingBox": { "x": 240, "y": 612, "w": 280, "h": 38 },
-  "classes": "form-control ng-untouched",
-  "value": "<10 chars>",
-  "group": null,
-  "optionCount": null,
-  "options": null,
-  "checked": null,
-  "selectors": {
-    "primary": "#panNumber",
-    "fallbacks": ["[formcontrolname=\"panNumber\"]", "[name=\"pan\"]"],
-    "stability": "stable",
-    "unique": true,
-    "uniqueInForm": true,           // null when there is no enclosing <form> (Q5)
-    "notes": ""
-  }
-}
+"repeats": [{
+  "containerSelector": "[data-testid=\"results\"]",
+  "itemSelector": "[data-testid=\"results\"] > div.card",
+  "itemCount": 24,
+  "slots": [
+    { "name": "slot_1", "selector": ".card .title", "kind": "text",  "sample": "<28 chars>" },
+    { "name": "slot_2", "selector": ".card a.dl",   "kind": "link",  "sample": "<href>", "download": true }
+  ]
+}],
+"pagination": [{ "next": "[rel=\"next\"]", "prev": "[rel=\"prev\"]",
+                 "pageIndicator": ".pager .count", "style": "numbered" }]
 ```
 
-## NetEntry (internal) and network.har
+## flow-map.json
 
-Internal entries hold what the hooks captured. `har.js` converts them into a
-HAR 1.2 `log` with `creator`, `pages` (one per distinct pageUrl) and `entries`.
-Fill `time` from `durationMs`; set unknown timing phases to `-1`, which is legal
-HAR. Do not invent values.
-
-## field-map-draft.json
-
-The deliverable that feeds VCFO Assist. One entry per **unique field across all
-states**, keyed by the most stable identifier available:
+The roll-up across all states — the file automation is written from.
 
 ```jsonc
 {
   "generatedAt": "ISO-8601",
-  "fields": [
-    {
-      "key": "panNumber",
-      "altKeys": ["pan"],          // every other identifier seen for the field (Q16)
-      "seenOnStates": ["st_0007", "st_0011"],
-      "label": "PAN of the applicant",
-      "labelSource": "for",
-      "type": "text",
-      "required": true,
-      "maxLength": 10,
-      "pattern": "[A-Z]{5}[0-9]{4}[A-Z]",
-      "selectors": { "primary": "#panNumber", "fallbacks": ["…"], "stability": "stable" },
-      "options": null,
-      "dependsOn": [],
-      "affects": [],
-      "vcfoField": null,          // human fills this in later
-      "notes": ""
-    }
-  ],
-  "dependencies": [
-    { "sourceField": "state", "targetFields": ["district"], "viaNetwork": true,
-      "endpoint": "/api/…", "confidence": "high" }
-  ],
-  "transitions": [ /* the state graph edges */ ]
+  "origin": "https://example.com",
+  "framework": "angular",
+  "pages": [{ "stateId": "st_0007", "pathname": "/step2", "title": "Step 2",
+              "reachedBy": "click:Next from st_0006" }],
+  "controls": [{
+    "key": "panNumber",
+    "seenOnStates": ["st_0007"],
+    "label": "…", "labelSource": "for", "type": "text",
+    "required": true, "maxLength": 10, "pattern": "…",
+    "selectors": { "primary": "…", "fallbacks": ["…"], "stability": "stable" },
+    "options": null, "dependsOn": [], "affects": [],
+    "sourceField": null,        // human fills: where the value comes from
+    "notes": ""
+  }],
+  "lists": [ /* deduped list patterns with the states they appeared on */ ],
+  "dependencies": [ /* from deps.js */ ],
+  "transitions": [ /* the state graph */ ]
 }
 ```
 
-`vcfoField` is always `null` on export. It is the column a human fills in to turn
-a capture into a real field map — say so in `SUMMARY.md`.
+`sourceField` is always `null` on export — it's the column a human fills to bind
+the site to their own data model.
 
-## SUMMARY.md
+## selectors.json
 
-Human-readable, generated, roughly:
+A flat `{ key: primarySelector }` map plus a `fallbacks` sibling object. Exists so
+generated code can import selectors without parsing the whole flow map.
 
-- Session header: when, how many states, which pages
-- Page inventory table: seq, title, path, field count, trigger that reached it
-- Flow narrative: the transition edges rendered as "from X, clicking Y led to Z,
-  adding N fields"
-- Dependency findings
-- **Attention list**: fields with `fragile` selectors, fields with
-  `labelSource: none | sibling | container`, non-unique selectors, duplicate ids
-  on the page (the prototype already found three buttons sharing
-  `btnPaymentStatus` — exactly this class of problem)
-- Reminder to review network bodies before sharing
+## playwright-skeleton.ts
+
+Generated, commented, and deliberately incomplete:
+
+- A `SELECTORS` constant from `selectors.json`
+- One `async function` stub per page state, named from the slug, with the controls
+  of that page listed as commented `// await page.fill(SELECTORS.x, data.x)` lines
+  — commented, never live
+- A `// TODO` block at every transition describing what the edge observed
+- A header comment stating that credentials, waits, and error handling are absent
+  by design and that nothing here has been executed
+
+The point is to give a coding agent a correct shape to start from, not runnable
+code.
+
+## SUMMARY.md and AUTOMATION-BRIEF.md
+
+`SUMMARY.md` is the human read: session header, page inventory table, the flow
+narrated from the transition edges, dependency findings, list-pattern findings,
+and an **attention list** — fragile selectors, weak label sources, non-unique
+selectors, duplicate ids, controls that appeared only once.
+
+`AUTOMATION-BRIEF.md` is the agent handoff. See `docs/08-consuming-output.md`.

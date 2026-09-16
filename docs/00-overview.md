@@ -1,50 +1,54 @@
 # 00 — Overview
 
-## What this is
+## What Flowprint is
 
-A Chrome MV3 extension, loaded unpacked, that a chartered-accountancy team member
-installs temporarily. It watches the MCA V3 portal while they do a normal SPICe+
-incorporation walkthrough and records everything a developer would need to later
-automate form pre-fill: page structure, every form control, stable selectors,
-dropdown option lists, network traffic, and the transitions between page states.
+A Chrome MV3 extension, loaded unpacked, that records how a website is built and
+how it behaves while a human uses it normally. It produces an export package that
+an AI coding agent can read cold and use to write browser automation against that
+site — form filling, scraping, multi-step flows — without ever having seen it.
 
 It is a **capture tool, not an automation tool.** It never touches the page.
 
-## Why it exists
+## The problem it solves
 
-The downstream project, VCFO Assist, is a Chrome extension that pre-fills SPICe+
-Part A and Part B from data already held in VCFO Suite. To build it, we need a
-field map: every MCA form field paired with a stable selector and the VCFO field
-it comes from. That map cannot be written from screenshots or from memory — it
-has to come from the live, logged-in DOM.
+Writing browser automation means answering questions a screenshot cannot: what is
+the stable selector for this field, which dropdown reloads which other one, what
+actually changes when you click Next, what shape is the row in this table, where
+does pagination live. Asking an AI agent to explore a site live is slow and
+expensive. Reading it from screenshots produces parsers that break, because the
+markup never matched what the eye saw.
 
-Reading that DOM through an AI agent live is slow and expensive. Recording it
-passively costs nothing and produces something exact.
+Flowprint records the answers passively, at zero token cost, while you just use
+the site.
+
+## Two shapes of work it supports
+
+**Filling** — a multi-step form or wizard. Output centres on the flow map: every
+control, its selector, its validation, and the transitions between states.
+
+**Extracting** — lists, tables, repeated cards, paginated results, downloads.
+Output centres on list patterns: the repeat container, the per-item sub-selectors,
+and the pagination controls.
+
+Most real automation needs both, so both are always captured.
 
 ## Who uses it
 
-One person, once, for maybe two hours. They:
+Anyone building automation against a site they legitimately use — their own
+account, their employer's systems, a client portal they're authorised on. Sessions
+are short: install, record the flow once, export, uninstall.
 
-1. Load the extension unpacked.
-2. Log into MCA V3 themselves.
-3. Walk a full SPICe+ journey, stopping before payment.
-4. Click Export.
-5. Delete the extension.
+## Design consequences
 
-Everything about the design follows from that: no onboarding, no settings, no
-persistence beyond one session's worth of capture, no polish that doesn't serve
-the export.
-
-## What good output looks like
-
-One folder on disk containing a page-by-page structural record, a HAR-shaped
-network log, a draft field map, and a human-readable summary that a developer
-(or Claude Code) can read cold and understand the SPICe+ flow without ever having
-seen the portal.
+- **Consent-gated.** Records nothing anywhere until the user adds an origin.
+- **Site-agnostic.** No domain, language, or country is assumed anywhere in code.
+- **Disposable.** No accounts, no sync, no cloud, no persistence past a session.
+- **Honest about redaction.** Values are stripped; free text in network bodies is
+  pattern-scrubbed but never claimed to be clean.
 
 ## Non-goals
 
-- Filling, submitting, or automating anything.
-- Working on portals other than MCA. Income Tax, GST and TRACES are out of scope.
-- Surviving a portal redesign. This is disposable.
-- Being published to the Chrome Web Store.
+- Performing, replaying, or scheduling automation.
+- Credential storage or session sharing.
+- Defeating bot protection, captchas, or rate limits.
+- Publication to the Chrome Web Store.

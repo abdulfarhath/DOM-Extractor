@@ -1,74 +1,59 @@
 # 04 — UI specification
 
-A side panel, not a popup. The user needs it visible while they browse so they
-can see capture happening and hit "Capture now" when something didn't trip a
-trigger. Register it with `chrome.sidePanel` and open on action click.
+A side panel, not a popup — the user needs it visible while browsing.
 
 ## Visual language
 
-Match VCFO Suite so this feels like part of the same family. Inline all tokens in
-`panel.css` — no remote fonts, no CDN.
+Inline all tokens in `panel.css`. No remote fonts, no CDN.
 
 ```css
 :root {
-  --primary: #2563EB;
-  --primary-hover: #1D4ED8;
-  --bg: #F8FAFC;
-  --surface: #FFFFFF;
-  --border: #E2E8F0;
-  --text: #0F172A;
-  --text-muted: #64748B;
-  --success: #0D9488;
-  --waiting: #F97362;
-  --danger: #E11D48;
+  --primary: #2563EB; --primary-hover: #1D4ED8;
+  --bg: #F8FAFC; --surface: #FFFFFF; --border: #E2E8F0;
+  --text: #0F172A; --text-muted: #64748B;
+  --success: #0D9488; --waiting: #F97362; --danger: #E11D48;
   --radius: 0.875rem;
   --font: -apple-system, "Segoe UI", system-ui, sans-serif;
 }
 ```
 
-Dark mode via `@media (prefers-color-scheme: dark)` with the same cool
-blue/slate family — never a warm or brown invert. Body text 14px, metadata 12px
-in a monospace stack. White text on the blue primary, never navy on blue.
+Dark mode via `prefers-color-scheme` in the same cool blue/slate family. Body 14px,
+metadata 12px monospace. White on the blue primary, never navy on blue.
 
 ## Layout, top to bottom
 
-1. **Header** — "MCA DOM Capturer", version, and a recording indicator: a filled
-   dot in `--success` pulsing while recording, `--text-muted` when paused.
-2. **Counters row** — three numbers with labels: Page states, Network calls,
-   Screenshots. Tabular figures.
-3. **Controls**
-   - Pause / Resume recording (primary button, toggles label)
-   - Capture now (secondary)
-   - Screenshots on/off (checkbox)
-4. **State list** — reverse chronological, the live feed. Each row:
-   - Sequence number in mono
-   - Page title, truncated to one line
-   - Field count, and the trigger in muted 12px
-   - A chip if the state has errors (`--danger`) or is new-fields-vs-previous
-     (`--success`)
-   - Clicking a row expands it to show headings, step labels, and the first ten
-     field labels. No modal.
-5. **Export block**, pinned to the bottom
-   - "Export capture" primary button
-   - During export, replace with a progress line: "Writing 14 of 63 files"
-   - "Clear session" as a quiet text button with a confirm step
-6. **Footer note** — 12px muted: values are never recorded; review network
-   bodies before sharing; delete the extension when done.
+1. **Header** — "Flowprint", version, recording dot: filled `--success` and
+   pulsing while recording, `--text-muted` when paused or not consented.
+2. **Origin bar** — the active tab's origin. If not consented: a prominent
+   "Record this site" button plus one line explaining that nothing is captured
+   until clicked, and that the tab reloads. If consented: the origin with a small
+   "Stop" affordance, and a count of other consented origins this session.
+3. **Counters** — Page states, Network calls, List patterns, Screenshots.
+   Tabular figures.
+4. **Controls** — Pause/Resume, Capture now, Screenshots toggle, and a collapsed
+   "Advanced" block holding the danger-word list and redaction pack toggles.
+5. **State list** — reverse chronological. Each row: sequence in mono, page title
+   truncated to one line, control count and trigger in muted 12px, a chip for
+   errors (`--danger`), new controls (`--success`), or list patterns found
+   (`--primary`). Clicking expands inline to show headings, step labels, the first
+   ten control labels, and any list pattern found. No modal.
+6. **Export block**, pinned to the bottom — "Export capture" primary; during
+   export a progress line "Writing 14 of 63 files"; "Clear session" as a quiet
+   text button with a confirm step.
+7. **Footer** — 12px muted: values are never recorded; review network bodies before
+   sharing; remove the extension when done.
 
 ## Empty state
 
-Before the first capture: a short line explaining that recording is active and
-they should just browse normally, plus the three things they should be sure to
-walk — every section tab, the deliberate validation errors, and a resume-by-SRN
-application. Not an illustration, just text.
+Before the first capture, once consented: a short line saying recording is active
+and to use the site normally, plus three prompts — walk every step of the flow,
+trigger a validation error on purpose, and page through any list you want scraped.
 
 ## Behaviour
 
-- The panel polls the service worker for stats every 1500ms while open. No
-  push-based updates — simpler, and the panel is often closed.
-- Never block the UI on a storage read. Render counters first, list second.
-- The state list renders at most the latest 60 rows regardless of how many exist;
-  the export contains everything.
-- Pause must actually stop capture at the content-script level, not just hide it.
-  The service worker holds the flag; content scripts check it before building a
-  StateRecord.
+- The panel polls the worker for stats every 1500ms while open. No push updates.
+- Never block the UI on a storage read. Counters first, list second.
+- The list renders at most the latest 60 rows; the export contains everything.
+- Pause is enforced in both places: content scripts check before building a state,
+  and the worker re-checks before storing, so nothing in flight lands after the
+  click.
