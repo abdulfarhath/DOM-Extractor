@@ -1,0 +1,13 @@
+{
+  "name": "mca-dom-capturer",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Throwaway Chrome MV3 extension that passively records MCA V3 page structure for the VCFO Assist field map.",
+  "scripts": {
+    "check": "tsc -p jsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.287",
+    "typescript": "^5.6.0"
+  }
+}

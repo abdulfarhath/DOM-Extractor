@@ -1,0 +1,42 @@
+{
+  "manifest_version": 3,
+  "name": "MCA DOM Capturer",
+  "version": "1.0.0",
+  "description": "Passively records the structure of MCA V3 pages while you browse. Observes only; never acts on the page; nothing leaves the machine.",
+  "minimum_chrome_version": "116",
+  "permissions": ["storage", "unlimitedStorage", "downloads", "sidePanel", "tabs"],
+  "host_permissions": ["https://www.mca.gov.in/*", "https://mca.gov.in/*"],
+  "background": {
+    "service_worker": "src/background/service-worker.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "MCA DOM Capturer"
+  },
+  "side_panel": {
+    "default_path": "src/sidepanel/panel.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.mca.gov.in/*", "https://mca.gov.in/*"],
+      "js": ["src/main-world/net-hook.js", "src/main-world/nav-hook.js"],
+      "run_at": "document_start",
+      "world": "MAIN",
+      "all_frames": true
+    },
+    {
+      "matches": ["https://www.mca.gov.in/*", "https://mca.gov.in/*"],
+      "js": [
+        "src/content/lib/redact.js",
+        "src/content/lib/labels.js",
+        "src/content/lib/selectors.js",
+        "src/content/lib/fields.js",
+        "src/content/lib/dom-snapshot.js",
+        "src/content/lib/observe.js",
+        "src/content/capture.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ]
+}
