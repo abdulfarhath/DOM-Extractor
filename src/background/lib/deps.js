@@ -1,6 +1,7 @@
 /**
- * Dependent-dropdown detection — docs/02. A `change:<field>` trigger followed
- * within the window by a network call or an options change on another field.
+ * Dependent-control detection — docs/02. A `change:<key>` trigger followed
+ * within the window by a network call or an options change on another
+ * control. Custom listboxes already arrive as `change:` (observe.js, Q17).
  */
 import { TIMING } from '../../shared/constants.js';
 
@@ -15,25 +16,24 @@ import { TIMING } from '../../shared/constants.js';
  */
 function endpointOf(url) {
   try {
-    const u = new URL(url);
-    return u.pathname;
+    return new URL(url).pathname;
   } catch {
     return url;
   }
 }
 
 /**
- * @param {StateRecord} state       the state that carries the change trigger
+ * @param {StateRecord} state       the state carrying the change trigger
  * @param {Transition} transition   edge into `state`
  * @param {NetEntry[]} netBetween   entries between the previous state and this one
  * @returns {Dependency|null}
  */
 export function detectDependency(state, transition, netBetween) {
   if (!state.trigger.startsWith('change:')) return null;
-  const sourceField = state.trigger.slice('change:'.length);
-  if (!sourceField) return null;
+  const sourceKey = state.trigger.slice('change:'.length);
+  if (!sourceKey) return null;
 
-  const t0 = Date.parse(state.triggerTimestamp);
+  const t0 = Date.parse(state.triggerAt);
   const t1 = t0 + TIMING.DEPENDENCY_WINDOW_MS;
   const netInWindow = Number.isFinite(t0)
     ? netBetween.filter((n) => {
@@ -42,13 +42,13 @@ export function detectDependency(state, transition, netBetween) {
       })
     : netBetween;
 
-  const targetFields = transition.optionsChanged.map((c) => c.fieldId).filter((k) => k !== sourceField);
-  if (!netInWindow.length && !targetFields.length) return null;
+  const targetKeys = transition.optionsChanged.map((c) => c.key).filter((k) => k !== sourceKey);
+  if (!netInWindow.length && !targetKeys.length) return null;
 
   /** @type {Dependency} */
   const dep = {
-    sourceField,
-    targetFields,
+    sourceKey,
+    targetKeys,
     viaNetwork: netInWindow.length > 0,
     confidence: netInWindow.length > 0 ? 'high' : 'medium',
     stateId: state.id,
@@ -64,7 +64,7 @@ export function detectDependency(state, transition, netBetween) {
  */
 export function isDuplicateDependency(existing, d) {
   /** @param {Dependency} x */
-  const key = (x) => `${x.sourceField}|${[...x.targetFields].sort().join(',')}|${x.endpoint || ''}`;
+  const key = (x) => `${x.sourceKey}|${[...x.targetKeys].sort().join(',')}|${x.endpoint || ''}`;
   const k = key(d);
   return existing.some((e) => key(e) === k);
 }

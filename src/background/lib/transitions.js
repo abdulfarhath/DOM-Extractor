@@ -1,38 +1,56 @@
 /**
- * State-graph edges — docs/02 "Transitions". Pure functions; the service
- * worker decides what counts as the previous state (same tab, same frame).
+ * State-graph edges — docs/02 "Transitions", docs/10 A8. Pure functions; the
+ * worker decides what counts as the previous state (same tab:frame) and
+ * whether a pause/resume sits between the two.
  */
 
 /** @typedef {import('../../shared/schema.js').StateRecord} StateRecord */
-/** @typedef {import('../../shared/schema.js').AnyFieldRecord} AnyFieldRecord */
+/** @typedef {import('../../shared/schema.js').AnyControlRecord} AnyControlRecord */
 /** @typedef {import('../../shared/schema.js').NetEntry} NetEntry */
 /** @typedef {import('../../shared/schema.js').Transition} Transition */
 /** @typedef {import('../../shared/schema.js').OptionsChange} OptionsChange */
+/** @typedef {import('../../shared/schema.js').ListCountChange} ListCountChange */
+/** @typedef {import('../../shared/schema.js').TimelineEvent} TimelineEvent */
 
 /**
- * Same identity rule as content/lib/fields.js `fieldKey` — duplicated because
- * the content world cannot export it.
- * @param {AnyFieldRecord} f
- * @returns {string}
+ * Controls keyed by identity. Duplicate keys keep the first occurrence.
+ * @param {StateRecord} s
+ * @returns {Map<string, AnyControlRecord>}
  */
-export function fieldKey(f) {
-  if ('redactedEntirely' in f) return f.label || `${f.type}@${f.index}`;
-  return f.id || f.name || f.formControlName || f.label || `${f.type}@${f.index}`;
+export function controlIndex(s) {
+  const m = new Map();
+  for (const c of s.controls) if (!m.has(c.key)) m.set(c.key, c);
+  return m;
 }
 
 /**
- * Fields keyed by identity. Duplicate keys (three buttons sharing an id is the
- * documented example) keep the first occurrence.
+ * List containers keyed by selector with their item/row counts.
  * @param {StateRecord} s
- * @returns {Map<string, AnyFieldRecord>}
+ * @returns {Map<string, number>}
  */
-export function fieldIndex(s) {
+function listCounts(s) {
   const m = new Map();
-  for (const f of s.fields) {
-    const k = fieldKey(f);
-    if (!m.has(k)) m.set(k, f);
-  }
+  if (!s.lists) return m;
+  for (const t of s.lists.tables) m.set(t.containerSelector, t.rowCount);
+  for (const r of s.lists.repeats) m.set(r.containerSelector, r.itemCount);
   return m;
+}
+
+/**
+ * A8: an edge must not straddle a pause or resume, or a session clear.
+ * @param {TimelineEvent[]} timeline
+ * @param {string} fromAt
+ * @param {string} toAt
+ * @returns {boolean}
+ */
+export function gapBetween(timeline, fromAt, toAt) {
+  const a = Date.parse(fromAt);
+  const b = Date.parse(toAt);
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return false;
+  return timeline.some((ev) => {
+    const t = Date.parse(ev.at);
+    return Number.isFinite(t) && t > a && t < b;
+  });
 }
 
 /**
@@ -42,8 +60,8 @@ export function fieldIndex(s) {
  * @returns {Transition}
  */
 export function buildTransition(from, to, netBetween) {
-  const a = fieldIndex(from);
-  const b = fieldIndex(to);
+  const a = controlIndex(from);
+  const b = controlIndex(to);
 
   /** @type {string[]} */
   const fieldsAdded = [];
@@ -51,22 +69,27 @@ export function buildTransition(from, to, netBetween) {
   const fieldsRemoved = [];
   /** @type {OptionsChange[]} */
   const optionsChanged = [];
+  /** @type {ListCountChange[]} */
+  const listCountsChanged = [];
 
   for (const k of b.keys()) if (!a.has(k)) fieldsAdded.push(k);
   for (const k of a.keys()) if (!b.has(k)) fieldsRemoved.push(k);
 
-  for (const [k, fb] of b) {
-    const fa = a.get(k);
-    if (!fa || 'redactedEntirely' in fa || 'redactedEntirely' in fb) continue;
-    if (!fa.options && !fb.options) continue;
-    if (JSON.stringify(fa.options) !== JSON.stringify(fb.options)) {
-      optionsChanged.push({ fieldId: k, before: fa.options, after: fb.options });
-    }
+  for (const [k, cb] of b) {
+    const ca = a.get(k);
+    if (!ca || 'redactedEntirely' in ca || 'redactedEntirely' in cb) continue;
+    if (!ca.options && !cb.options) continue;
+    if (JSON.stringify(ca.options) !== JSON.stringify(cb.options)) optionsChanged.push({ key: k, before: ca.options, after: cb.options });
+  }
+
+  const la = listCounts(from);
+  const lb = listCounts(to);
+  for (const [sel, after] of lb) {
+    const before = la.get(sel);
+    if (before != null && before !== after) listCountsChanged.push({ selector: sel, before, after });
   }
 
   const prevErrors = new Set(from.errors);
-  const errorsAppeared = to.errors.filter((e) => !prevErrors.has(e));
-
   return {
     from: from.id,
     to: to.id,
@@ -75,7 +98,8 @@ export function buildTransition(from, to, netBetween) {
     fieldsAdded,
     fieldsRemoved,
     optionsChanged,
+    listCountsChanged,
     netCallsBetween: netBetween.map((n) => n.id),
-    errorsAppeared,
+    errorsAppeared: to.errors.filter((e) => !prevErrors.has(e)),
   };
 }
