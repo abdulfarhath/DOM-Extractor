@@ -26,6 +26,13 @@
   const ORIGINS_KEY = 'fp:origins';
   const DEBOUNCE_MS = 900;
   const MIN_STATE_GAP_MS = 2000;
+  /**
+   * The debounce restarts on every trigger, and some pages never stop
+   * mutating (spinners, carousels, polling widgets). Without a ceiling one
+   * burst swallowed a 34-second walk through four pages. A burst fires at
+   * most this long after it began, or after the route last changed.
+   */
+  const MAX_BURST_MS = 3000;
   const CAPS = { HEADINGS: 40, STEPS: 40, BUTTONS: 60, ERRORS: 20, NOTICES: 10, TEXT: 120, BURST: 60, SHAPE_DEPTH: 8, SHAPE_KEYS: 80, ENUM_VALUES: 8, MIME: 120 };
   const MEDIA_MIME_RE = /^(image|video|audio)\//i;
   const SHAPE_TYPES = new Set(['object', 'array', 'string', 'number', 'boolean', 'null', 'mixed', 'truncated']);
@@ -75,6 +82,8 @@
   let timer = null;
   let pendingTrigger = '';
   let pendingAt = '';
+  let burstStartedAt = 0;
+  let burstRoute = '';
   /** @type {Array<{ t: string, n: number }>} */
   let burst = [];
   let forceNext = false;
@@ -154,7 +163,7 @@
     const seen = new Set();
     for (const el of ns.fields.queryDeep(document, selector)) {
       if (visibleOnly && !ns.fields.isVisible(el)) continue;
-      const t = ns.redact.scrubText(ns.labels.textOf(el, CAPS.TEXT));
+      const t = ns.redact.scrubElementText(el, ns.labels.textOf(el, CAPS.TEXT));
       if (!t || seen.has(t)) continue;
       seen.add(t);
       out.push(t);
@@ -193,7 +202,7 @@
     const out = [];
     for (const el of ns.fields.queryDeep(document, SEL.buttons)) {
       const b = /** @type {HTMLElement & { value?: string, disabled?: boolean }} */ (el);
-      const text = ns.redact.scrubText(ns.labels.cleanText(b.innerText || b.value || b.getAttribute('aria-label') || b.getAttribute('title'), 60));
+      const text = ns.redact.scrubElementText(b, ns.labels.cleanText(b.innerText || b.value || b.getAttribute('aria-label') || b.getAttribute('title'), 60));
       if (!text) continue;
       const tag = b.tagName.toLowerCase();
       const typeAttr = (b.getAttribute('type') || '').toLowerCase();
@@ -324,6 +333,7 @@
       pendingTrigger = '';
       pendingAt = '';
       burst = [];
+      burstStartedAt = 0;
       forceNext = false;
       return;
     }
@@ -342,6 +352,7 @@
     pendingTrigger = '';
     pendingAt = '';
     burst = [];
+    burstStartedAt = 0;
     forceNext = false;
 
     /** @type {StateDraft} */
@@ -384,8 +395,21 @@
     const last = burst[burst.length - 1];
     if (last && last.t === trigger) last.n++;
     else if (burst.length < CAPS.BURST) burst.push({ t: trigger, n: 1 });
+    const now = Date.now();
+    let route = '';
+    try {
+      route = ns.nav.route();
+    } catch {
+      route = '';
+    }
+    // A new route is a new page: give it its own settle time, once.
+    if (!burstStartedAt || route !== burstRoute) {
+      burstStartedAt = now;
+      burstRoute = route;
+    }
+    const delay = Math.max(0, Math.min(DEBOUNCE_MS, burstStartedAt + MAX_BURST_MS - now));
     if (timer) clearTimeout(timer);
-    timer = setTimeout(fire, DEBOUNCE_MS);
+    timer = setTimeout(fire, delay);
   };
 
   // -------------------------------------------------- MAIN-world relays

@@ -209,3 +209,30 @@ adding a question.
   written into `playwright-skeleton.ts` for the consumer.
 - **Alternative:** build the method name at run time to dodge the grep.
 - **Answer:**
+
+## Q20 — F6: learned values live per document, in memory
+- **Context:** a name redacted through a key, label or hint is learned and
+  scrubbed wherever it recurs. The set could be kept per session instead.
+- **Default chosen:** per document, in the content script's memory, never
+  stored. A full page load forgets it; key, label and hint rules still apply.
+- **Alternative:** keep it in `chrome.storage.session` for the origin, which
+  would put the very values being hidden into storage.
+- **Answer:**
+
+## Q21 — F6: over-redaction is accepted
+- **Context:** the lookaround DIN rule now also takes 8-digit dates inside
+  file names (`18112024`), `notTokens` cannot know every structural key, and
+  a label such as "Name" in a key/value pane redacts the next text node.
+- **Default chosen:** redact. A lost value costs a guess; a leaked one cannot
+  be undone. Column headers (`th`, `role=columnheader`) are exempt.
+- **Alternative:** narrower rules, more leaks.
+- **Answer:**
+
+## Q22 — F8: write verbs are code vocabulary
+- **Context:** `writeHint` reads path segments and POST operation names for
+  verbs such as update, delete, submit, withdraw, pay.
+- **Default chosen:** an English verb list, treated like the login/logout path
+  conventions: code vocabulary, not UI language. `save` is left out, since
+  sites read through `saveEntity`-style calls.
+- **Alternative:** method-only (PUT, PATCH, DELETE).
+- **Answer:**

@@ -390,3 +390,23 @@ works through `docs/07-acceptance.md` and answers `QUESTIONS.md` (Q1–Q15).
   phase; the harness lives outside `src/` and ships nothing.
 - Left out: live testing against a real portal; the fixture is generic.
 - `npm run check`: pass
+
+## 2026-09-29 — 1.2.0: redaction and capture fixes from a live portal capture (docs/11 F6–F8)
+
+- Packs: identifier patterns use lookarounds instead of `\b`; the generic
+  pack gains `keys`, `labels` and `hints`.
+- `redact.js`: JSON bodies are walked structurally (truncated ones pair by
+  pair), timestamps are kept, file names become `<FILE>.ext`, and redacted
+  values are learned per document; `scrubElementText` for headings, buttons
+  and action labels.
+- `dom-snapshot.js`: a hint and label pass before the pattern pass.
+- `capture.js`: a 3 s debounce ceiling, re-armed on a route change.
+- `apicatalog.js`: `writeHint`; the brief and the summary report it.
+- Files: `src/content/{packs/generic.js,packs/india.js,lib/redact.js,
+  lib/dom-snapshot.js,lib/observe.js,capture.js}`,
+  `src/background/lib/{apicatalog,brief,summary,export,har}.js`,
+  `src/shared/schema.js`, `src/types/globals.d.ts`, docs 02, 03, 05, 11.
+- Verification: `npm run check` passes. `tools/e2e`: 39 of 39. Offline checks
+  of the redactor against raw portal bodies and DOM pages from a September 23
+  capture: no PAN and no known name left.
+- Left out: no re-recording of the live portal (needs a person to log in).

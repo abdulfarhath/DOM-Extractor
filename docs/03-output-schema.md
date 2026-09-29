@@ -264,10 +264,16 @@ the item that was clicked, so compare them loosely.
     "listPaths": [{ "path": "$.items", "len": 20 }],   // arrays of objects with more than one item
     "pagingParams": ["page", "size"],                   // judged on the name only
     "calledFromRoutes": ["/app/#/orders"], "stateIds": ["st_0002"], "actionIds": ["act_0001"],
-    "netIds": ["net_0002", "net_0003"], "isDownload": false, "hasFullBody": true
+    "netIds": ["net_0002", "net_0003"], "isDownload": false, "hasFullBody": true, "writeHint": null
   }]
 }
 ```
+
+`writeHint` is null, or why the endpoint may change server data: `method PUT`
+(PUT, PATCH, DELETE), `path word "update"`, or `operation "..."` when a POST body
+names its operation under a key such as `serviceName` or `action`. POST alone is
+not a hint; many sites read over POST. The brief lists these under the API
+catalog, and the summary counts them.
 
 Scripts, styles, images, fonts and source maps are left out. A path segment
 becomes `{id}` when it varies between calls that otherwise look like one

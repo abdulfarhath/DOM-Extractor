@@ -301,8 +301,8 @@ function manifestFor(b, meta, allOrigins, listPatterns, derived, bodies) {
       fieldValues: 'redacted at capture',
       domValues: 'redacted at capture',
       bodies: bodies.written
-        ? 'pattern-scrubbed, NOT guaranteed clean; network.har holds 4000 characters per body, api/bodies/ holds full bodies'
-        : 'pattern-scrubbed, NOT guaranteed clean',
+        ? 'pattern- and key-scrubbed (names, addresses, file names under recognisable keys; timestamps kept), NOT guaranteed clean; network.har holds 4000 characters per body, api/bodies/ holds full bodies'
+        : 'pattern- and key-scrubbed (names, addresses, file names under recognisable keys; timestamps kept), NOT guaranteed clean',
       apiShapes: 'shapes only (key names, types, lengths, enum-like values); key names and enum values scrubbed at capture',
       downloads: 'file names never stored (nameShape only); URLs scrubbed without query values; file contents never read',
     },

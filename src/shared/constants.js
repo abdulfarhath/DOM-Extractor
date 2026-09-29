@@ -7,7 +7,7 @@
  */
 
 export const TOOL_NAME = 'Flowprint';
-export const TOOL_VERSION = '1.1.0';
+export const TOOL_VERSION = '1.2.0';
 
 /** Storage keys. Per-state keys take a suffix: `fp:dom:<stateId>`. */
 export const KEYS = Object.freeze({

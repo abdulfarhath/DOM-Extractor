@@ -89,7 +89,7 @@
     // Row text is record data (names, account numbers); the trigger string is
     // exported verbatim, so keep only its length. The action keeps UI captions.
     if (el.closest(ROW_DATA_SEL)) return `<${text.length} chars>`;
-    return ns().redact.scrubText(text.slice(0, CLICK_LABEL_MAX));
+    return ns().redact.scrubElementText(el, text.slice(0, CLICK_LABEL_MAX));
   };
 
   /**
@@ -322,13 +322,13 @@
     if (how === 'none') return '';
     const raw = l.accessibleName(target, ACTION_TEXT_MAX);
     if (!raw) return '';
-    if (ui) return r.scrubText(raw).slice(0, ACTION_TEXT_MAX);
+    if (ui) return r.scrubElementText(target, raw).slice(0, ACTION_TEXT_MAX);
     if (type === 'row') return r.redactValue(raw);
     if (listSelector) {
       const row = target.closest(ROW_SEL);
       if (!row || !repeatsAcrossRows(target, row, raw)) return r.redactValue(raw);
     }
-    return r.scrubText(raw).slice(0, ACTION_TEXT_MAX);
+    return r.scrubElementText(target, raw).slice(0, ACTION_TEXT_MAX);
   };
 
   /**

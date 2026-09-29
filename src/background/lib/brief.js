@@ -209,6 +209,13 @@ export function buildBrief(states, map, meta, net, extras = {}) {
     for (const e of catalog.endpoints) {
       out.push(`| ${codeCell(e.id)} | ${e.method} | ${codeCell(trunc(e.urlTemplate, 90))} | ${e.count} | ${e.statuses.join('/')} | ${cell(e.mimeType)}${e.isDownload ? ' (file)' : ''} | ${e.listPaths.map((l) => `${codeCell(l.path)} ×${l.len}`).join(', ')} | ${e.pagingParams.map(codeCell).join(', ')} | ${e.calledFromRoutes.slice(0, 3).map((r) => codeCell(trunc(r, 40))).join(', ')}${e.calledFromRoutes.length > 3 ? ', …' : ''} |`);
     }
+    const writes = catalog.endpoints.filter((e) => e.writeHint);
+    if (writes.length) {
+      out.push('');
+      out.push('**May change server data.** These calls fired while the human used the site. An automation that must stay read-only never calls them and never triggers the click that caused them: opening a record can itself mark it read.');
+      out.push('');
+      for (const e of writes) out.push(`- ${codeCell(e.id)} ${e.method} ${codeCell(trunc(e.urlTemplate, 90))}: ${cell(e.writeHint || '')}; after ${e.actionIds.length ? e.actionIds.map(codeCell).join(', ') : 'no recorded action'}`);
+    }
   }
   out.push('');
 

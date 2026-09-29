@@ -9,7 +9,11 @@ returns immediately and installs no listeners. No exceptions.
 
 ## When to capture
 
-Debounced 900ms after any of:
+Debounced 900ms after any of, with a ceiling: a burst fires at most 3s after it
+began, or after the route last changed. A page that never stops mutating must not
+hold one burst open across several pages (docs/11 F7).
+
+Triggers:
 
 | Trigger | Source | `trigger` value |
 |---|---|---|

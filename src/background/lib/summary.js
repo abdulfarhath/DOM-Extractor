@@ -39,6 +39,7 @@ export function buildSummary(states, map, meta, netCount, extras = {}) {
   const actions = extras.actions || [];
   const downloads = extras.downloads || [];
   const endpoints = extras.catalog ? extras.catalog.endpoints.length : 0;
+  const writes = extras.catalog ? extras.catalog.endpoints.filter((e) => e.writeHint) : [];
   out.push(`# ${TOOL_NAME} capture — ${map.origin}`);
   out.push('');
   out.push(`Generated ${new Date().toISOString()} by ${TOOL_NAME} ${TOOL_VERSION}. Session started ${meta.sessionStartedAt}.`);
@@ -50,6 +51,7 @@ export function buildSummary(states, map, meta, netCount, extras = {}) {
   out.push(`- **${states.length}** page states across **${distinctRoutes.size}** distinct routes (pages); **${map.controls.length}** unique controls, of which **${humanOnly}** redacted (human-only); **${map.lists.length}** list patterns`);
   out.push(`- **${map.transitions.length}** transitions, **${actions.length}** recorded actions (clicks and changes), **${map.dependencies.length}** dependency findings`);
   out.push(`- **${netCount}** network calls in \`network.har\`, **${endpoints}** distinct endpoints in \`api-catalog.json\`, **${downloads.length}** downloads in \`downloads.json\`${meta.keepBodies === 'full' ? ', full API bodies kept under `api/bodies/`' : ''}`);
+  if (writes.length) out.push(`- **${writes.length}** endpoint(s) may change server data (${writes.map((e) => `\`${e.id}\` ${e.method}`).join(', ')}); see \`api-catalog.json\` \`writeHint\` and the brief`);
   out.push(`- Logged-in signal on ${loggedIn} of ${states.length} states (password fields, autocomplete tokens and login/logout paths; English text only at low confidence)`);
   out.push(`- Redaction packs: ${meta.packs.join(', ')}`);
   out.push('');
@@ -153,7 +155,7 @@ export function buildSummary(states, map, meta, netCount, extras = {}) {
   // ---- reminders
   out.push('## Before this leaves the machine');
   out.push('');
-  out.push('- `network.har` keeps response bodies because option lists, lookups and list data live in them. They were regex-scrubbed with the packs above (emails, phones, cards, tokens, plus country packs) only. **Names, addresses and free text are not scrubbed. Read the bodies before sharing.**');
+  out.push('- `network.har` keeps response bodies because option lists, lookups and list data live in them. They were scrubbed with the packs above: patterns (emails, phones, cards, tokens, plus country packs), values under name-, address- and file-name-like JSON keys, and any value already redacted elsewhere on the page. Timestamps are kept. **Names under unrecognised keys and free text still get through. Read the bodies before sharing.**');
   if (meta.keepBodies === 'full') out.push('- `api/bodies/` holds **full** API responses (up to 1 MB each) because "Keep full API responses" was on. The same scrubbing applies and the same warning, more so: names, addresses and free text in them cannot be scrubbed automatically.');
   out.push('- `api-catalog.json` holds shapes (key names, types, lengths, enum-like values) rather than data; key names and enum values were scrubbed, but a key that is itself a name or a number is still visible.');
   out.push('- `downloads.json` never holds a file name, only its shape (`A{n}` letters, `9{n}` digits), and never a file\'s contents.');

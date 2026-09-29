@@ -66,9 +66,22 @@ DOM snapshots get the same pass: every text node, and every `title`, `alt`,
 `aria-label` and `placeholder` value, is pattern-scrubbed in the clone
 (inlined shadow roots included) before it is serialised.
 
-Names and addresses cannot be regexed. The manifest, the summary and the brief all
-state plainly that bodies need a human read before the export leaves the machine.
-Never claim the output is anonymised.
+Pattern boundaries are explicit lookarounds, not `\b`: `_` is a word character,
+so `\b` misses an identifier inside a file name such as `..._ABCDE1234F_Notice.pdf`.
+
+Names and addresses cannot be regexed, but the structure around them can
+(docs/11 F6). Packs may add `keys` (JSON keys whose value is a name, an address,
+a date of birth or a file name), `labels` (page text whose next value is one) and
+`hints` (class or id tokens on the element that renders one). Anything they
+redact is learned for the rest of the document and scrubbed wherever it recurs.
+JSON bodies are walked structurally; truncated ones get the same rules pair by
+pair. Timestamps (epoch milliseconds in 2000–2100, or seconds under a date-like
+key) are kept: they are structure an automation needs, and the phone and card
+patterns used to eat them.
+
+This still misses names under unrecognised keys and in free text. The manifest,
+the summary and the brief all state plainly that bodies need a human read before
+the export leaves the machine. Never claim the output is anonymised.
 
 ## Rule 5 — nothing leaves the machine
 

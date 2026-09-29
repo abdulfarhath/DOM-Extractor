@@ -29,6 +29,67 @@
     for (const n of doomed) n.parentNode?.removeChild(n);
   };
 
+  const VALUE_MAX = 200;
+  const HEADER_CELL_SEL = 'th, [role="columnheader"]';
+  /**
+   * @param {Text} n
+   * @param {string} replacement
+   */
+  const replaceText = (n, replacement) => {
+    const v = n.nodeValue || '';
+    const lead = /^\s*/.exec(v)?.[0] || '';
+    const trail = /\s*$/.exec(v)?.[0] || '';
+    n.nodeValue = lead + replacement + trail;
+  };
+
+  /**
+   * docs/11 F6 — names and addresses that no pattern can see. An element
+   * whose class or id names what it holds (`userNameVal`) loses its text; a
+   * text node right after a label such as "Name of Assessee" becomes the
+   * label's replacement. Each redacted value is learned, so the pattern pass
+   * that follows also removes it where it recurs (a greeting, a tooltip).
+   * @param {ParentNode & Node} root
+   */
+  const scrubStructural = (root) => {
+    const r = ns().redact;
+    for (const el of root.querySelectorAll('[class], [id]')) {
+      const h = r.hintRuleFor(el);
+      if (!h) continue;
+      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      let first = true;
+      for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+        const v = n.nodeValue || '';
+        if (!NON_BLANK_RE.test(v) || v.trim().startsWith('<') || r.isDecoration(n)) continue;
+        r.learn(v, h.replacement);
+        if (first) replaceText(/** @type {Text} */ (n), h.replacement);
+        else n.nodeValue = '';
+        first = false;
+      }
+    }
+    /** @type {{ replacement: string }|null} */
+    let pending = null;
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      const v = n.nodeValue || '';
+      if (!NON_BLANK_RE.test(v)) continue;
+      const t = v.trim();
+      // A separator between label and value is not the value.
+      if (/^[:\-–—|*]$/.test(t)) continue;
+      const label = r.labelRuleFor(t);
+      if (label) {
+        const cell = n.parentElement && n.parentElement.closest(HEADER_CELL_SEL);
+        // A column header labels a whole column, not the next text node.
+        pending = cell ? null : label;
+        continue;
+      }
+      if (pending && t.length <= VALUE_MAX && !t.startsWith('<')) {
+        r.learn(t, pending.replacement);
+        replaceText(/** @type {Text} */ (n), pending.replacement);
+      }
+      pending = null;
+    }
+  };
+
   /**
    * Rule 4 on page text: every text node and every attribute that carries
    * human-readable text goes through the redaction packs, so identifiers a
@@ -38,6 +99,7 @@
    */
   const scrubPageText = (root) => {
     const r = ns().redact;
+    scrubStructural(root);
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
     for (let n = walker.nextNode(); n; n = walker.nextNode()) {
       const v = n.nodeValue;

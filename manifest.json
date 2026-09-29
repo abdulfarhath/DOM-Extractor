@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Flowprint",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Records how a website is built and behaves while you use it, so browser automation can be written from the export. Observes only. Records nothing until you add a site.",
   "minimum_chrome_version": "116",
   "permissions": ["storage", "unlimitedStorage", "downloads", "sidePanel", "tabs", "offscreen"],

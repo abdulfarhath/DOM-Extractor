@@ -33,10 +33,10 @@
       { name: 'secret-key', pattern: /\bsk-[A-Za-z0-9]{16,}\b/g, replacement: '<TOKEN>' },
       { name: 'google-key', pattern: /\bAIza[0-9A-Za-z_-]{20,}\b/g, replacement: '<TOKEN>' },
       { name: 'email', pattern: /[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g, replacement: '<EMAIL>' },
-      { name: 'iban', pattern: /\b[A-Z]{2}\d{2}(?:[ ]?[A-Z0-9]{4}){2,7}[A-Z0-9]{0,3}\b/g, replacement: '<IBAN>' },
+      { name: 'iban', pattern: /(?<![A-Za-z0-9])[A-Z]{2}\d{2}(?:[ ]?[A-Z0-9]{4}){2,7}[A-Z0-9]{0,3}(?![A-Za-z0-9])/g, replacement: '<IBAN>' },
       {
         name: 'card',
-        pattern: /\b(?:\d[ -]?){12,18}\d\b/g,
+        pattern: /(?<!\d)(?:\d[ -]?){12,18}\d(?!\d)/g,
         /** @param {string} m */
         replacement: (m) => {
           const digits = m.replace(/[ -]/g, '');
@@ -44,6 +44,35 @@
         },
       },
       { name: 'phone', pattern: /(?<![\d.])\+?(?:\d[ \-().]?){9,14}\d(?![\d.])/g, replacement: '<PHONE>' },
+    ],
+    /* Structural rules (docs/11 F6). Patterns cannot see a name or an
+       address; the key or label next to it can. These are code-vocabulary
+       conventions (JSON keys, class names) plus a small English label list;
+       another language adds its own pack with its own `labels`. */
+    keys: [
+      // First match wins, so the file rule runs before the name rule.
+      // `notTokens` is tested against each camelCase/snake_case token of the
+      // key, so `formName`, `serviceName`, `bankName` stay data while
+      // `contactFirstName` and `nameOfAssessee` are redacted.
+      { name: 'file-name', key: /file.?name|doc.?nam|attach.*name/i, replacement: '<FILE>' },
+      {
+        name: 'person-name',
+        key: /name|nam$|nm$/i,
+        notTokens: /^(?:forms?|service|file|doc|class|field|col|column|table|module|proceeding|procdng|action|menu|route|page|type|section|tab|label|method|param|event|app|host|domain|product|template|screen|role|state|city|country|district|bank|branch|ward|circle|act|scheme|category|status|key|tag|image|icon|attr|prop|short|desc|description|hindi|code|cd|flag|mode|mod|currency|month|day|year|browser|device|font|theme|lang|locale|region|zone|group|dept|designation|desig|title|order|sort|path|var|stage|step|task|report|return|notice|sub|host|server|queue|job|test|column)$/i,
+        replacement: '<NAME>',
+      },
+      { name: 'address', key: /addr|address|street|locality|landmark|pin.?code|zip.?code|postal/i, notTokens: /^(?:flag|type|code|cd|status|ind|same|chk|check|valid|msg|label)$/i, replacement: '<ADDRESS>' },
+      { name: 'birth', key: /dob|birth/i, replacement: '<DATE>' },
+    ],
+    labels: [
+      // A label that is only "name", or ends in "name" / starts "name of".
+      { name: 'person-name', label: /^(?:(?:full|first|last|middle|user|customer|client|account|holder|legal|trade|company|firm|applicant|member|contact|owner|display|assessee|taxpayer|entity|partner|director|father|mother|spouse|nominee|beneficiary|payee|employee|employer|deductor|deductee|borrower|guarantor|person|party|business|organi[sz]ation)(?:'s)?\s+)?name(?:\s+of\s+[\p{L} ]{2,30})?$/iu, replacement: '<NAME>' },
+      { name: 'address', label: /^(?:[\p{L} ]{0,20}\s)?address$/iu, replacement: '<ADDRESS>' },
+      { name: 'birth', label: /^(?:date of birth|dob|birth date)$/iu, replacement: '<DATE>' },
+    ],
+    hints: [
+      // class or id tokens on the element that renders the value itself
+      { name: 'person-name', hint: /user.?name|full.?name|display.?name|profile.?name|account.?name|customer.?name|assess?ee.?name|taxpayer.?name|text.?name|welcome/i, replacement: '<NAME>' },
     ],
   };
 })();

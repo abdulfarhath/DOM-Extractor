@@ -803,6 +803,7 @@
  * @property {string[]} netIds
  * @property {boolean} isDownload
  * @property {boolean} hasFullBody
+ * @property {string|null} writeHint  why this call may change server data (method, path verb, operation name), or null
  */
 
 /**

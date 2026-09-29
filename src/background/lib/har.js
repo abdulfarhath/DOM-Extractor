@@ -111,7 +111,7 @@ export function buildHar(entries) {
       pages: Array.from(pages.values()).map((p) => ({ startedDateTime: p.startedDateTime, id: p.id, title: p.title, pageTimings: { onContentLoad: -1, onLoad: -1 } })),
       entries: harEntries,
       comment:
-        'Reconstructed from fetch/XHR wrappers. Timing phases are approximate; browser-added request headers are absent. Bodies are pattern-scrubbed, not anonymised, and cut at a fixed length: `_flowprint` on each entry holds the shape of the whole body, its size before the cut, and the download flags.',
+        'Reconstructed from fetch/XHR wrappers. Timing phases are approximate; browser-added request headers are absent. Bodies are pattern- and key-scrubbed, not anonymised, and cut at a fixed length: `_flowprint` on each entry holds the shape of the whole body, its size before the cut, and the download flags.',
     },
   };
 }

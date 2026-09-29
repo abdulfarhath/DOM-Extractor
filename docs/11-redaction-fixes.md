@@ -134,3 +134,45 @@ Append to `docs/07-acceptance.md`:
 - [ ] A field labelled `Pin code` is captured normally
 - [ ] `flow-map.json` and `selectors.json` both contain the credential fields
 - [ ] `SUMMARY.md` reports the redacted-control count
+
+
+---
+
+# F6–F8 — findings from a live income tax portal capture (2026-09-29)
+
+A recording of a logged-in e-filing session was checked against what the
+consuming project needed. It leaked, lost data, and missed a page.
+
+## F6 — structural redaction
+
+- A real PAN survived inside a document file name (`..._AST_<PAN>_Notice
+  us 133(6)_....pdf.gz`): `\b` does not fire between `_` and a letter. Every
+  identifier pattern now uses explicit lookarounds.
+- Client names survived in bodies (`nameOfAssesse`, `userName`), DOM cards
+  ("Name of Assessee" → value), a profile button (`span.userNameVal`), a
+  tooltip, and a greeting ("Welcome Back, …"). Packs gained `keys`, `labels`
+  and `hints` (see docs/05 rule 4); redacted values are learned per document
+  and scrubbed where they recur. `notTokens` keeps structural keys
+  (`formName`, `serviceName`, `bankName`) as data. Hints apply only to small
+  elements (≤200 characters of text, ≤12 descendants), and icon ligatures
+  (`expand_more`) and aria-hidden text are never learned.
+- Every date in the bodies was destroyed: the portal sends epoch milliseconds,
+  which the phone pattern rewrote as `<PHONE>` and the card pattern as `<CARD>`.
+  Timestamps are now kept.
+- Checked offline against 225 raw portal bodies and 12 DOM pages from an
+  earlier capture: no PAN and no known name left, 913 timestamps kept.
+
+## F7 — debounce ceiling
+
+The state for a notice PDF click was triggered at 11:42:51 and stored at
+11:43:25. Continuous mutations kept resetting the 900 ms debounce; the one
+burst covered the notice view, the dashboard, the outstanding-demand page
+and its two tabs, and ended on the dashboard, so none of those pages has a
+state. A burst now fires at most 3 s after it began or after the route last
+changed.
+
+## F8 — write-shaped endpoints
+
+Viewing a notice fired `PUT .../updateEntity`, which set the notice's read
+flag. Nothing marked it. `api-catalog.json` gains `writeHint`; the brief
+lists these calls and the summary counts them.

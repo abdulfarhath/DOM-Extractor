@@ -564,6 +564,50 @@ function pushUnique(list, v) {
   if (v && !list.includes(v)) list.push(v);
 }
 
+const WRITE_METHODS = new Set(['PUT', 'PATCH', 'DELETE']);
+/** Verbs in code identifiers (path segments, operation names), not UI text. */
+const WRITE_TOKEN_RE = /^(?:update|upd|delete|del|remove|submit|cancel|withdraw|approve|reject|upload|pay|payment|confirm|finali[sz]e|revoke|mark|set|patch|put|post|create|insert|discard|file|lodge)$/i;
+/** Request-body keys that conventionally name the operation a POST performs. */
+const OP_KEY_RE = /^(?:service(?:name)?|action(?:name)?|operation(?:name)?|op|method|command|cmd|mutation|query)$/i;
+
+/**
+ * @param {string} id
+ * @returns {string[]}
+ */
+const idTokens = (id) => id.replace(/([a-z0-9])([A-Z])/g, '$1 $2').split(/[^A-Za-z]+/).filter(Boolean);
+
+/**
+ * Whether an endpoint may change something on the server, and why: the HTTP
+ * method, a write verb in the path, or a write verb in the operation name a
+ * POST body carries. POST alone proves nothing — many sites read over POST.
+ * A consumer that must stay read-only treats every hit as off limits.
+ * @param {EndpointGroup} g
+ * @returns {string|null}
+ */
+export function writeHintOf(g) {
+  if (WRITE_METHODS.has(g.method)) return `method ${g.method}`;
+  if (g.method === 'GET' || g.method === 'HEAD' || g.method === 'OPTIONS') return null;
+  for (const seg of g.path.split('/')) {
+    const hit = idTokens(seg).find((t) => WRITE_TOKEN_RE.test(t));
+    if (hit) return `path word "${hit}"`;
+  }
+  for (const n of g.calls) {
+    if (!n.requestBody) continue;
+    try {
+      const body = JSON.parse(n.requestBody);
+      if (!body || typeof body !== 'object' || Array.isArray(body)) continue;
+      for (const [k, v] of Object.entries(body)) {
+        if (typeof v !== 'string' || !OP_KEY_RE.test(k)) continue;
+        const hit = idTokens(v).find((t) => WRITE_TOKEN_RE.test(t));
+        if (hit) return `operation "${v.slice(0, 60)}"`;
+      }
+    } catch {
+      /* not JSON: nothing to read */
+    }
+  }
+  return null;
+}
+
 /**
  * @param {NetEntry[]} net
  * @param {StateRecord[]} states
@@ -663,6 +707,7 @@ export function buildApiCatalog(net, states, actions, origin) {
       netIds: g.calls.map((n) => n.id),
       isDownload,
       hasFullBody,
+      writeHint: writeHintOf(g),
     };
   });
 

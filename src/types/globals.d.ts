@@ -43,9 +43,35 @@ interface FPRedactRule {
   replacement: string | ((m: string) => string);
 }
 
+/** docs/11 F6: a JSON key whose value is a name, an address, a file name. */
+interface FPKeyRule {
+  name: string;
+  key: RegExp;
+  /** Tested against each camelCase/snake_case token; a hit keeps the value. */
+  notTokens?: RegExp;
+  replacement: string;
+}
+
+/** docs/11 F6: page text whose following value is a name or an address. */
+interface FPLabelRule {
+  name: string;
+  label: RegExp;
+  replacement: string;
+}
+
+/** docs/11 F6: a class or id on the element that renders the value. */
+interface FPHintRule {
+  name: string;
+  hint: RegExp;
+  replacement: string;
+}
+
 interface FPPack {
   name: string;
   rules: FPRedactRule[];
+  keys?: FPKeyRule[];
+  labels?: FPLabelRule[];
+  hints?: FPHintRule[];
 }
 
 interface FPRedact {
@@ -53,6 +79,13 @@ interface FPRedact {
   isCredentialControl(el: Element, label: string): boolean;
   scrubBody(text: string | null | undefined): string | null;
   scrubText(text: string): string;
+  /** Structural rule for the element if any (and learn the value), else the pattern scrub. */
+  scrubElementText(el: Element, text: string): string;
+  labelRuleFor(text: string): FPLabelRule | null;
+  hintRuleFor(el: Element): FPHintRule | null;
+  learn(value: string, replacement: string): void;
+  /** Icon ligatures and aria-hidden glyphs: never a value. */
+  isDecoration(n: Node): boolean;
   setPacks(names: string[]): void;
   getPacks(): string[];
   CREDENTIAL_RE: RegExp;
