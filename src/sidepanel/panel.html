@@ -34,6 +34,8 @@
     <div class="counter"><span class="num" id="cNet">0</span><span class="lbl">Network calls</span></div>
     <div class="counter"><span class="num" id="cLists">0</span><span class="lbl">List patterns</span></div>
     <div class="counter"><span class="num" id="cShots">0</span><span class="lbl">Screenshots</span></div>
+    <div class="counter"><span class="num" id="cActions">0</span><span class="lbl">Actions</span></div>
+    <div class="counter"><span class="num" id="cDownloads">0</span><span class="lbl">Downloads</span></div>
   </section>
 
   <section class="controls" aria-label="Controls">
@@ -51,6 +53,11 @@
         <label class="check"><input type="checkbox" checked disabled /> generic (always on)</label>
         <label class="check"><input type="checkbox" id="packIndia" /> india (PAN, Aadhaar, DIN, GSTIN, IFSC, passport)</label>
       </div>
+      <div class="field">
+        <span>API responses</span>
+        <label class="check"><input type="checkbox" id="chkKeepBodies" aria-describedby="keepBodiesWarning" /> Keep full API responses</label>
+        <p class="warning" id="keepBodiesWarning">Full responses can contain names, addresses and other free text that cannot be scrubbed automatically. Leave this off unless the automation needs the actual values, and review the export before sharing it.</p>
+      </div>
     </details>
   </section>
 
@@ -58,22 +65,35 @@
   <div class="notice mono" id="throttle" hidden>high page activity — DOM triggers throttled; use Capture now</div>
   <div class="notice mono danger" id="degraded" hidden></div>
 
-  <section class="feed" aria-label="Captured states">
-    <div class="empty" id="emptyNoConsent">
-      <p>Open the site you want to record, then click <strong>Record this site</strong> above.</p>
-      <p>Flowprint records nothing anywhere until you do.</p>
-    </div>
-    <div class="empty" id="emptyConsented" hidden>
-      <p>Recording is active. Use the site normally — every distinct page state is captured as you go.</p>
-      <p>Make sure you:</p>
-      <ul>
-        <li>walk every step of the flow you want automated</li>
-        <li>trigger a validation error on purpose</li>
-        <li>page through any list you want scraped</li>
-      </ul>
-    </div>
-    <ul class="list" id="list"></ul>
-  </section>
+  <div class="scroll" id="scroll">
+    <section class="coverage" id="coverage" aria-labelledby="coverageHeading" hidden>
+      <h2 class="coverage-heading" id="coverageHeading">
+        <button class="coverage-toggle" id="coverageToggle" type="button" aria-expanded="true" aria-controls="coverageBody">
+          <span class="coverage-caret" aria-hidden="true"></span>
+          <span>Coverage</span>
+          <span class="coverage-state" id="coverageState" aria-hidden="true">Hide</span>
+        </button>
+      </h2>
+      <div class="coverage-body" id="coverageBody"></div>
+    </section>
+
+    <section class="feed" aria-label="Captured states">
+      <div class="empty" id="emptyNoConsent">
+        <p>Open the site you want to record, then click <strong>Record this site</strong> above.</p>
+        <p>Flowprint records nothing anywhere until you do.</p>
+      </div>
+      <div class="empty" id="emptyConsented" hidden>
+        <p>Recording is active. Use the site normally — every distinct page state is captured as you go.</p>
+        <p>Make sure you:</p>
+        <ul>
+          <li>walk every step of the flow you want automated</li>
+          <li>trigger a validation error on purpose</li>
+          <li>page through any list you want scraped</li>
+        </ul>
+      </div>
+      <ul class="list" id="list"></ul>
+    </section>
+  </div>
 
   <section class="export" aria-label="Export">
     <button class="btn primary" id="btnExport" type="button">Export capture</button>

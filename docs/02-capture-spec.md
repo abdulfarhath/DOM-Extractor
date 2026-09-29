@@ -163,7 +163,8 @@ One per state, stored separately. Before gzipping: strip `<script>`, `<style>`,
 `<noscript>` and `<svg>` inner content (keep the tags), remove comments, truncate
 attributes over 300 chars and `data:` URIs to 64 chars, and apply redaction —
 `value="<n chars>"`, hidden inputs `value="<hidden>"`, credential controls
-`value="<redacted>"` with no length.
+`value="<redacted>"` with no length. Text nodes and `title`/`alt`/`aria-label`/
+`placeholder` values are pattern-scrubbed with the enabled packs (docs/05 rule 4).
 
 ## Screenshot
 

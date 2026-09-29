@@ -48,9 +48,16 @@ build; the folder loads as-is.
      and click Next),
    - change any dropdown that reloads another one,
    - **page through** any list or table you want scraped, and open one item,
+   - click **every tab and filter** above a list — each one is recorded as
+     its own view,
+   - download **one file** of each kind you want the automation to fetch,
    - stop before anything irreversible: payment, final submission, signing.
 5. Watch the panel. **Page states** climbs as you move. If a page did not
-   register, click **Capture now**.
+   register, click **Capture now**. The **Coverage** block lists menu items
+   you have seen but not opened, tabs and filters you have not clicked,
+   tables you have not paged and tables where you have not opened a row.
+   Work down its **Next steps** until it names only things you do not want
+   automated.
 6. If the page embeds another site (a payment frame, an identity provider) the
    panel offers to record that too. Click **Record** next to it or leave it —
    either way the export says what it did not see.
@@ -59,7 +66,11 @@ build; the folder loads as-is.
 **Screenshots** box turns page screenshots on and off. **Advanced** lets you
 edit the list of words that mark a button as dangerous (submit, pay, confirm…)
 and switch the India redaction pack on or off. It switches on by itself for
-`.in` sites.
+`.in` sites. **Keep full API responses** (off by default) stores whole API
+responses instead of only their shape; see section 4 before turning it on.
+
+For the Income Tax e-filing portal, follow
+`docs/ITR-RECORDING-CHECKLIST.md`.
 
 ## 3. Export
 
@@ -72,15 +83,23 @@ and switch the India redaction pack on or off. It switches on by itself for
 
 ```
 manifest.json           what was captured, counts, redaction, blind spots
-AUTOMATION-BRIEF.md     the handoff document — read this, then fill in §10
+RECIPES.md              per page: how to reach it, views, lists, APIs, downloads
+AUTOMATION-BRIEF.md     the handoff document — fill in its last section
 SUMMARY.md              human overview with the attention list
+routes.json             step-by-step click paths to every recorded page and view
+site-map.json           the menu tree and pages, with visited / not visited
+api-catalog.json        every API endpoint: URL template, response shape, paging
+coverage.json           what was visited, what was not, what is incomplete
+actions.json            every click and choice, with selectors
+downloads.json          every download: type, trigger, URL template, no file names
 flow-map.json           every unique control, selector, option list, the flow graph
 selectors.json          flat { key: selector } map for code to import
-playwright-skeleton.ts  commented-out shape, one function per page; not runnable
+playwright-skeleton.ts  live navigation and table helpers; fills stay commented
 network.har             every fetch/XHR, bodies scrubbed; opens in DevTools
 states/                 one JSON per page state
 dom/                    one sanitised HTML per page state, values stripped
 screens/                one PNG per page state (orientation only)
+api/bodies/             full scrubbed API responses, only if you turned that on
 ```
 
 If you recorded more than one site in a session, the zip is
@@ -88,8 +107,11 @@ If you recorded more than one site in a session, the zip is
 
 ## 4. Review before sharing
 
-Control values, passwords and captcha are never in the export. Network
-response bodies **are**, because dropdown lists and lookups live in them. They
+Control values, passwords, captcha and downloaded file names are never in the
+export, and downloaded files' contents are never read. Network response
+bodies **are** (the first 4000 characters of each in `network.har`, and in
+full under `api/bodies/` if you turned that on), because dropdown lists and
+lookups live in them. They
 were scrubbed for emails, phone numbers, card numbers, tokens and — with the
 India pack — PAN, Aadhaar, DIN, GSTIN, IFSC and passport shapes. **Names,
 addresses and free text cannot be scrubbed automatically.**
@@ -99,16 +121,17 @@ were on screen, and replace anything real. Then hand the folder over.
 
 ## 5. Hand it to a coding agent
 
-1. Open `AUTOMATION-BRIEF.md` and fill in **§10 What I want automated**: which
+1. Open `AUTOMATION-BRIEF.md` and fill in its last section, **What I want automated**: which
    pages, which controls get values from where, what "done" looks like, what
    must stay manual.
 2. Give the unzipped folder to the agent with:
 
-   > Read AUTOMATION-BRIEF.md, then flow-map.json. Build <what you wrote>.
+   > Read RECIPES.md, then AUTOMATION-BRIEF.md, routes.json and
+   > api-catalog.json. Build <what you wrote>.
 
 The brief carries the selectors, the flow, the reference data and the known
-weak points, so the agent needs no exploratory page loads. Its §9 states the
-constraints the automation must respect; they are part of the handoff.
+weak points, so the agent needs no exploratory page loads. Its constraints
+section states what the automation must respect; it is part of the handoff.
 
 ## 6. Remove it
 
@@ -121,10 +144,13 @@ Do not leave it installed. It is a one-session capture tool.
 ## For developers
 
 - `npm install && npm run check` — type gate only (`tsc --noEmit` over JSDoc).
-  No tests, no build step, no runtime dependencies.
+  No unit tests, no build step, no runtime dependencies.
 - `docs/01-architecture.md` for layout and data flow; `docs/02`, `03` and
   `08` are the contract; `docs/09` and `10` hold settled decisions and
-  post-first-build additions.
+  post-first-build additions; `docs/12` adds navigation, actions, API shapes,
+  downloads, coverage and routes (1.1.0).
+- `tools/e2e/` loads the extension in Chromium, records a fixture portal,
+  exports and checks the zip. See `tools/e2e/README.md`.
 - `TASKS.md` is the build log; `QUESTIONS.md` holds every judgement call with
   the default taken.
 - Content scripts are classic scripts sharing `window.__FP`; the worker,

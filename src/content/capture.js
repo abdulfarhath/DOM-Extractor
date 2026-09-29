@@ -1,12 +1,14 @@
-/* Orchestrator — docs/02, docs/05 rule 1, docs/10 A2/A3. Consent gate first:
-   nothing below the gate runs, and no listener is installed, unless the
+/* Orchestrator — docs/02, docs/05 rule 1, docs/10 A2/A3, docs/12. Consent gate
+   first: nothing below the gate runs, and no listener is installed, unless the
    worker says this origin is consented. Then: debounce triggers, rate-cap
    captures, build a StateDraft, dedupe by signature (+ errors), snapshot the
-   DOM and hand everything to the worker.
+   DOM and hand everything to the worker. Actions (B4) bypass the debounce:
+   they go to the worker the moment they happen. Net entries, blob and
+   window-open hints from the MAIN world are scrubbed here and relayed.
    Loaded last; assumes every window.__FP lib is present. Classic script. */
 (() => {
   const ns = /** @type {FPNamespace} */ (window.__FP);
-  if (!ns || !ns.fields || !ns.observe || !ns.domSnapshot || !ns.redact || !ns.lists || !ns.framework) return;
+  if (!ns || !ns.fields || !ns.observe || !ns.domSnapshot || !ns.redact || !ns.lists || !ns.framework || !ns.nav) return;
 
   // Mirrors src/shared/constants.js — content scripts cannot import it.
   const MSG = {
@@ -15,13 +17,19 @@
     NET_ENTRY: 'fp:net-entry',
     FRAME_BLOCKED: 'fp:frame-blocked',
     THROTTLED: 'fp:throttled',
+    ACTION: 'fp:action',
+    BLOB_HINT: 'fp:blob-hint',
+    WINDOW_OPEN: 'fp:window-open',
     CAPTURE_NOW: 'fp:capture-now',
   };
   const META_KEY = 'fp:meta';
   const ORIGINS_KEY = 'fp:origins';
   const DEBOUNCE_MS = 900;
   const MIN_STATE_GAP_MS = 2000;
-  const CAPS = { HEADINGS: 40, STEPS: 40, BUTTONS: 60, ERRORS: 20, NOTICES: 10, TEXT: 120, BURST: 60 };
+  const CAPS = { HEADINGS: 40, STEPS: 40, BUTTONS: 60, ERRORS: 20, NOTICES: 10, TEXT: 120, BURST: 60, SHAPE_DEPTH: 8, SHAPE_KEYS: 80, ENUM_VALUES: 8, MIME: 120 };
+  const MEDIA_MIME_RE = /^(image|video|audio)\//i;
+  const SHAPE_TYPES = new Set(['object', 'array', 'string', 'number', 'boolean', 'null', 'mixed', 'truncated']);
+  const SHAPE_FORMATS = new Set(['date', 'datetime', 'numeric', 'url', 'email', 'uuid', 'boolean', 'text']);
 
   const SEL = {
     headings: 'h1, h2, h3, h4, legend, [class*="title"], [class*="heading"]',
@@ -43,10 +51,24 @@
 
   /** @type {string[]} */
   let dangerWords = ['submit', 'pay', 'confirm', 'delete', 'remove', 'final'];
-  let dangerRe = /submit|pay|confirm|delete|remove|final/i;
+  /**
+   * Whole words only, in any script: "Pay" and "Pay now" match, "Payments"
+   * and "Submitted" do not. \b is ASCII-only, so the boundaries are
+   * Unicode-aware lookarounds on letters and digits.
+   * @param {string[]} words
+   * @returns {RegExp}
+   */
+  const wordRe = (words) => {
+    const esc = words.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    return esc.length ? new RegExp(`(?<![\\p{L}\\p{N}])(?:${esc.join('|')})(?![\\p{L}\\p{N}])`, 'iu') : /$^/;
+  };
+  let dangerRe = wordRe(dangerWords);
   let recording = true;
   let consented = false;
+  /** @type {'shape'|'full'} */
+  let keepBodies = 'shape';
   let lastSignature = '';
+  let lastViewKey = '';
   let lastErrorsKey = '';
   let lastStoredAt = 0;
   /** @type {ReturnType<typeof setTimeout>|null} */
@@ -88,8 +110,34 @@
    */
   const setDangerWords = (words) => {
     dangerWords = words.filter((w) => typeof w === 'string' && w.trim()).map((w) => w.trim());
-    const esc = dangerWords.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-    dangerRe = esc.length ? new RegExp(esc.join('|'), 'i') : /$^/;
+    dangerRe = wordRe(dangerWords);
+  };
+
+  /**
+   * One rule for buttons in a state and for actions (docs/12 B4): dangerous
+   * when it submits a form — by type, or by being a form's default button —
+   * or when its text matches the configurable word list.
+   * @param {string} text
+   * @param {Element} el
+   * @returns {boolean}
+   */
+  const isDanger = (text, el) => {
+    const tag = el.tagName.toLowerCase();
+    const type = (el.getAttribute('type') || '').toLowerCase() || (tag === 'button' ? 'submit' : '');
+    const submits = type === 'submit' && (tag === 'input' || tag === 'button') && !!el.closest('form');
+    return submits || dangerRe.test(text);
+  };
+
+  /**
+   * docs/12 B5: the MAIN world reads bodies only as far as the user allowed.
+   * Sent after the gate and again whenever the setting changes.
+   */
+  const postConfig = () => {
+    try {
+      window.postMessage({ __fp: 'config', keepBodies }, location.origin);
+    } catch {
+      /* opaque origin */
+    }
   };
 
   // -------------------------------------------------------- page-level bits
@@ -150,8 +198,6 @@
       const tag = b.tagName.toLowerCase();
       const typeAttr = (b.getAttribute('type') || '').toLowerCase();
       const type = typeAttr || (tag === 'button' ? 'submit' : tag === 'a' ? 'link' : 'button');
-      const inForm = !!b.closest('form');
-      const submits = type === 'submit' && (tag === 'input' || tag === 'button') && inForm;
       out.push({
         text,
         id: b.id || '',
@@ -159,7 +205,7 @@
         type,
         disabled: !!b.disabled || b.getAttribute('aria-disabled') === 'true',
         visible: ns.fields.isVisible(b),
-        danger: submits || dangerRe.test(text),
+        danger: isDanger(text, b),
         selector: ns.selectors.forElement(b),
       });
       if (out.length >= CAPS.BUTTONS) break;
@@ -223,7 +269,18 @@
     const framework = ns.framework.detect();
     const usesShadowDom = ns.fields.hasShadowRoots(document);
     const controls = ns.fields.collectControls(document).map((el, i) => ns.fields.describeControl(el, i, framework));
-    const signature = [location.pathname, document.title, controls.map((c) => c.key).join('|')].join('::');
+    const lists = ns.lists.collect(document);
+    const nav = ns.nav.collect(document);
+    const view = ns.nav.viewState(nav, lists);
+    const route = ns.nav.route();
+    // docs/12 B2: the route tells fragment-routed pages apart, the view key
+    // tells a paged or re-tabbed list apart from the one before it.
+    // docs/12 B3: an open popup menu is a state of its own, so its items —
+    // which may exist only while it is open — are stored with it. The part is
+    // left off when nothing is open, so ordinary signatures are unchanged.
+    const open = ns.nav.openKey();
+    const signature = [route, document.title, controls.map((c) => c.key).join('|'), view.key].join('::') + (open ? `::open=${open}` : '');
+    lastViewKey = view.key;
     return {
       capturedAt: new Date().toISOString(),
       trigger,
@@ -248,11 +305,15 @@
       authHints: collectAuthHints(),
       controlCount: controls.length,
       controls,
-      lists: ns.lists.collect(document),
+      lists,
       usesShadowDom,
       orderApproximate: usesShadowDom,
       opaqueRegions: ns.fields.findOpaque(document),
       captureDegraded: ns.observe.degraded(),
+      route,
+      queryKeys: ns.nav.queryKeys(),
+      nav,
+      view,
     };
   };
 
@@ -308,9 +369,13 @@
 
   /**
    * @param {string} trigger
+   * @param {ActionDraft} [action]
    */
-  const schedule = (trigger) => {
+  const schedule = (trigger, action) => {
     if (!consented) return;
+    // docs/12 B4: an action is a fact about the user, not about the page, so
+    // it goes out now — whether or not the state it leads to survives dedupe.
+    if (action && recording) void send({ type: MSG.ACTION, action });
     // First user-originated trigger in a burst wins; dom-change only fills a gap.
     if (!pendingTrigger || pendingTrigger === 'dom-change') {
       pendingTrigger = trigger;
@@ -323,26 +388,149 @@
     timer = setTimeout(fire, DEBOUNCE_MS);
   };
 
+  // -------------------------------------------------- MAIN-world relays
+  // Everything the hook posts is page-controllable data: fields are checked
+  // for type, scrubbed, and defaulted when an older hook leaves them out.
+
+  /**
+   * docs/12 B5. Key names and enum values are the only text in a shape, and
+   * both come from the site. Keys are rebuilt because scrubbing can change
+   * them; two keys scrubbing to the same name keep a suffix apart.
+   * @param {unknown} shape
+   * @param {number} depth
+   * @returns {JsonShape|null}
+   */
+  const scrubShape = (shape, depth) => {
+    if (!shape || typeof shape !== 'object' || Array.isArray(shape)) return null;
+    if (depth > CAPS.SHAPE_DEPTH + 1) return { t: 'truncated' };
+    const raw = /** @type {Record<string, unknown>} */ (shape);
+    /** @type {JsonShape} */
+    const out = { t: SHAPE_TYPES.has(String(raw.t)) ? /** @type {JsonShape['t']} */ (raw.t) : 'mixed' };
+    if (raw.nullable === true) out.nullable = true;
+    if (typeof raw.len === 'number' && Number.isFinite(raw.len)) out.len = raw.len;
+    if (typeof raw.format === 'string' && SHAPE_FORMATS.has(raw.format)) out.format = /** @type {NonNullable<JsonShape['format']>} */ (raw.format);
+    if (Array.isArray(raw.values)) {
+      /** @type {string[]} */
+      const values = [];
+      for (const v of raw.values) {
+        if (values.length >= CAPS.ENUM_VALUES) break;
+        const t = ns.redact.scrubText(String(v));
+        if (!values.includes(t)) values.push(t);
+      }
+      out.values = values;
+    }
+    if ('item' in raw) out.item = scrubShape(raw.item, depth + 1);
+    if (raw.keys && typeof raw.keys === 'object') {
+      /** @type {Record<string, JsonShape>} */
+      const keys = {};
+      /** @type {Map<string, string>} */
+      const renamed = new Map();
+      let n = 0;
+      for (const [k, v] of Object.entries(/** @type {Record<string, unknown>} */ (raw.keys))) {
+        if (n++ >= CAPS.SHAPE_KEYS) break;
+        const child = scrubShape(v, depth + 1);
+        if (!child) continue;
+        let name = ns.redact.scrubText(k);
+        for (let i = 2; Object.prototype.hasOwnProperty.call(keys, name); i++) name = `${ns.redact.scrubText(k)}#${i}`;
+        renamed.set(k, name);
+        // defineProperty so a key called `__proto__` stays a key.
+        Object.defineProperty(keys, name, { value: child, enumerable: true, writable: true, configurable: true });
+      }
+      out.keys = keys;
+      if (Array.isArray(raw.optional)) out.optional = raw.optional.map((k) => renamed.get(String(k)) || ns.redact.scrubText(String(k))).filter((k, i, a) => a.indexOf(k) === i);
+    }
+    return out;
+  };
+
+  /**
+   * @param {NetDraft} entry
+   */
+  const relayNet = (entry) => {
+    if (!entry || typeof entry.url !== 'string') return;
+    entry.requestBody = ns.redact.scrubBody(entry.requestBody);
+    entry.responseBody = ns.redact.scrubBody(entry.responseBody);
+    entry.url = ns.redact.scrubText(entry.url);
+    for (const h of entry.requestHeaders || []) h.value = ns.redact.scrubText(h.value);
+    for (const h of entry.responseHeaders || []) h.value = ns.redact.scrubText(h.value);
+    // docs/12 B5/B6 fields; an older hook sends none of them.
+    entry.requestShape = scrubShape(entry.requestShape, 1);
+    entry.responseShape = scrubShape(entry.responseShape, 1);
+    entry.responseSize = typeof entry.responseSize === 'number' && Number.isFinite(entry.responseSize) ? entry.responseSize : -1;
+    entry.bodyTruncated = entry.bodyTruncated === true;
+    entry.disposition = entry.disposition === 'attachment' || entry.disposition === 'inline' ? entry.disposition : null;
+    entry.dispositionExt = typeof entry.dispositionExt === 'string' && /^[a-z0-9]{1,8}$/i.test(entry.dispositionExt) ? entry.dispositionExt.toLowerCase() : null;
+    entry.isDownload = entry.isDownload === true;
+    // The worker decides whether a full body is kept; here it is only scrubbed.
+    if (typeof entry.responseFull === 'string') entry.responseFull = ns.redact.scrubBody(entry.responseFull) || '';
+    else delete entry.responseFull;
+    void send({ type: MSG.NET_ENTRY, entry });
+  };
+
+  /**
+   * @param {unknown} v
+   * @returns {string}
+   */
+  const isoOf = (v) => (typeof v === 'string' && v.length <= 40 ? v : new Date().toISOString());
+
+  /**
+   * docs/12 B6: a createObjectURL happened — type and size, nothing of the content.
+   * @param {Record<string, unknown>} data
+   */
+  const relayBlob = (data) => {
+    const mime = typeof data.mime === 'string' ? ns.redact.scrubText(data.mime).slice(0, CAPS.MIME) : '';
+    // Pages mint object URLs for media by the dozen; none of those is a
+    // download the user asked for, and each hint costs the worker a write.
+    if (MEDIA_MIME_RE.test(mime)) return;
+    const size = typeof data.size === 'number' && Number.isFinite(data.size) ? data.size : -1;
+    void send({ type: MSG.BLOB_HINT, origin, mime, size, at: isoOf(data.at) });
+  };
+
+  /**
+   * A URL with its query values taken out: origin, path, fragment path, and
+   * the parameter names alone. Null for anything that is not http(s).
+   * @param {unknown} url
+   * @returns {string|null}
+   */
+  const cleanUrl = (url) => {
+    if (typeof url !== 'string' || !url.trim()) return null;
+    /** @type {URL} */
+    let u;
+    try {
+      u = new URL(url, location.href);
+    } catch {
+      return null;
+    }
+    if (!/^https?:$/.test(u.protocol)) return null;
+    const path = ns.nav.cleanHref(u.origin + u.pathname + u.hash);
+    if (path === null) return null;
+    const keys = Array.from(new Set(Array.from(u.searchParams.keys()).map((k) => ns.redact.scrubText(k)).filter(Boolean))).sort();
+    return (path.startsWith('/') ? u.origin + path : path) + (keys.length ? `?${keys.map((k) => `${k}=`).join('&')}` : '');
+  };
+
+  /**
+   * docs/12 B6: window.open was called.
+   * @param {Record<string, unknown>} data
+   */
+  const relayOpen = (data) => {
+    const target = typeof data.target === 'string' ? ns.redact.scrubText(data.target).slice(0, 40) : null;
+    void send({ type: MSG.WINDOW_OPEN, origin, url: cleanUrl(data.url), target, at: isoOf(data.at) });
+  };
+
   // ------------------------------------------------------------- plumbing
 
   const installListeners = () => {
-    // Net entries and framework answers from the MAIN-world hook.
+    // Net entries, hints and framework answers from the MAIN-world hook.
     window.addEventListener('message', (ev) => {
       if (ev.source !== window || !ev.data || typeof ev.data.__fp !== 'string') return;
-      if (ev.data.__fp === 'framework') {
-        ns.framework.mergeMainWorld(ev.data.info || {});
+      const data = /** @type {{ __fp: string } & Record<string, unknown>} */ (ev.data);
+      if (data.__fp === 'framework') {
+        ns.framework.mergeMainWorld(/** @type {Partial<FrameworkInfo>} */ (data.info) || {});
         return;
       }
-      if (ev.data.__fp !== 'net' || !recording) return;
-      /** @type {NetDraft} */
-      const entry = ev.data.entry;
-      if (!entry || typeof entry.url !== 'string') return;
-      entry.requestBody = ns.redact.scrubBody(entry.requestBody);
-      entry.responseBody = ns.redact.scrubBody(entry.responseBody);
-      entry.url = ns.redact.scrubText(entry.url);
-      for (const h of entry.requestHeaders || []) h.value = ns.redact.scrubText(h.value);
-      for (const h of entry.responseHeaders || []) h.value = ns.redact.scrubText(h.value);
-      void send({ type: MSG.NET_ENTRY, entry });
+      if (!consented || !recording) return;
+      if (data.__fp === 'net') relayNet(/** @type {NetDraft} */ (data.entry));
+      else if (data.__fp === 'blob') relayBlob(data);
+      else if (data.__fp === 'open') relayOpen(data);
     });
 
     // Manual capture from the side panel, relayed by the worker.
@@ -370,6 +558,11 @@
             if (typeof meta.recording === 'boolean') recording = meta.recording;
             if (Array.isArray(meta.dangerWords)) setDangerWords(meta.dangerWords);
             if (Array.isArray(meta.packs)) ns.redact.setPacks(meta.packs);
+            const kb = meta.keepBodies === 'full' ? 'full' : 'shape';
+            if (kb !== keepBodies) {
+              keepBodies = kb;
+              postConfig();
+            }
           }
         }
         if (changes[ORIGINS_KEY]) {
@@ -389,6 +582,8 @@
     ns.observe.start({
       onTrigger: schedule,
       onThrottle: (until) => void send({ type: MSG.THROTTLED, origin, until }),
+      isDanger,
+      viewKey: () => lastViewKey,
     });
     // Ask the MAIN world what it can see; the answer merges in when it arrives.
     try {
@@ -396,6 +591,7 @@
     } catch {
       /* opaque origin */
     }
+    postConfig();
   };
 
   // ------------------------------------------------------------------ gate
@@ -410,6 +606,7 @@
     if (typeof r.recording === 'boolean') recording = r.recording;
     if (Array.isArray(r.dangerWords)) setDangerWords(r.dangerWords);
     if (Array.isArray(r.packs)) ns.redact.setPacks(r.packs);
+    keepBodies = r.keepBodies === 'full' ? 'full' : 'shape';
     installListeners();
   });
 })();

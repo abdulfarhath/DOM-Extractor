@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Harbourline Filing Portal</title>
+<script>
+/* "Acted upon" detector. FIRST script on the page, before anything else runs.
+ *
+ * A recorder that only observes never clicks, submits or fills. This block
+ * notes every sign that some script did:
+ *   - a click event whose isTrusted is false
+ *   - a call to HTMLElement.prototype.click, HTMLFormElement.prototype.submit
+ *     or requestSubmit
+ *   - a write through a form control's value / checked / selectedIndex /
+ *     selected / files setter
+ *   - a control whose value differs from what trusted input last left in it
+ *     ("drift": catches writes from another JS world, where the wrapped
+ *     setters above are not the ones being called)
+ *
+ * The fixture's own code does a few of these on purpose (the Blob download
+ * clicks a temporary anchor; the dependent select is refilled). Those run
+ * inside selfAct() and are not noted. The harness's clicks and key presses
+ * are real browser input, so they are trusted and never land here.
+ *
+ * Read it with:  window.__fixtureActedUpon()
+ */
+(function () {
+  'use strict';
+  var KEY = '__fixture.actedUpon';
+  var local = [];
+  var selfDepth = 0;
+  var harnessSynthetic = false;
+  var known = new WeakMap();
+
+  function describe(el) {
+    if (!el || !el.tagName) return String(el);
+    var s = el.tagName.toLowerCase();
+    if (el.id) s += '#' + el.id;
+    var t = (el.getAttribute && el.getAttribute('type')) || '';
+    if (t) s += '[type=' + t + ']';
+    var txt = (el.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 40);
+    if (txt && s.indexOf('input') !== 0) s += ' "' + txt + '"';
+    return s;
+  }
+
+  function note(kind, el, extra) {
+    if (selfDepth > 0 || harnessSynthetic) return;
+    var stack = '';
+    try { stack = String(new Error().stack || '').split('\n').slice(2, 7).map(function (l) { return l.trim(); }).join(' | '); } catch (e) {}
+    var entry = { kind: kind, target: describe(el), route: location.pathname + location.hash, at: new Date().toISOString(), detail: extra || '', stack: stack };
+    local.push(entry);
+    try {
+      var all = JSON.parse(localStorage.getItem(KEY) || '[]');
+      all.push(entry);
+      localStorage.setItem(KEY, JSON.stringify(all.slice(-500)));
+    } catch (e) {}
+  }
+
+  function wrapMethod(proto, name, kind) {
+    var orig = proto[name];
+    if (typeof orig !== 'function') return;
+    proto[name] = function () {
+      note(kind, this);
+      return orig.apply(this, arguments);
+    };
+  }
+  wrapMethod(HTMLElement.prototype, 'click', 'HTMLElement.click()');
+  wrapMethod(HTMLFormElement.prototype, 'submit', 'HTMLFormElement.submit()');
+  wrapMethod(HTMLFormElement.prototype, 'requestSubmit', 'HTMLFormElement.requestSubmit()');
+
+  function wrapSetter(proto, prop, kind) {
+    var d = Object.getOwnPropertyDescriptor(proto, prop);
+    if (!d || !d.set || !d.configurable) return;
+    Object.defineProperty(proto, prop, {
+      configurable: true,
+      enumerable: d.enumerable,
+      get: d.get,
+      set: function (v) {
+        note(kind, this);
+        var r = d.set.call(this, v);
+        if (selfDepth > 0) remember(this);
+        return r;
+      },
+    });
+  }
+  wrapSetter(HTMLInputElement.prototype, 'value', 'input.value =');
+  wrapSetter(HTMLInputElement.prototype, 'valueAsDate', 'input.valueAsDate =');
+  wrapSetter(HTMLInputElement.prototype, 'valueAsNumber', 'input.valueAsNumber =');
+  wrapSetter(HTMLInputElement.prototype, 'checked', 'input.checked =');
+  wrapSetter(HTMLInputElement.prototype, 'files', 'input.files =');
+  wrapSetter(HTMLTextAreaElement.prototype, 'value', 'textarea.value =');
+  wrapSetter(HTMLSelectElement.prototype, 'value', 'select.value =');
+  wrapSetter(HTMLSelectElement.prototype, 'selectedIndex', 'select.selectedIndex =');
+  wrapSetter(HTMLOptionElement.prototype, 'selected', 'option.selected =');
+
+  function valueOf(el) {
+    var t = (el.getAttribute('type') || '').toLowerCase();
+    if (t === 'checkbox' || t === 'radio') return 'checked:' + el.checked;
+    return 'value:' + el.value;
+  }
+  function remember(el) {
+    try {
+      var c = el && el.tagName === 'OPTION' ? el.closest('select') : el;
+      if (c && 'value' in c) known.set(c, valueOf(c));
+    } catch (e) {}
+  }
+  function controlsIn(root, out) {
+    var list = root.querySelectorAll('input, select, textarea');
+    for (var i = 0; i < list.length; i++) out.push(list[i]);
+    var all = root.querySelectorAll('*');
+    for (var j = 0; j < all.length; j++) if (all[j].shadowRoot) controlsIn(all[j].shadowRoot, out);
+    return out;
+  }
+  function rebaseAll() {
+    controlsIn(document, []).forEach(remember);
+  }
+  function sweep() {
+    controlsIn(document, []).forEach(function (el) {
+      if (!known.has(el)) return remember(el);
+      var now = valueOf(el);
+      if (known.get(el) !== now) {
+        note('value drift (changed without trusted input)', el, 'length ' + String(el.value || '').length);
+        known.set(el, now);
+      }
+    });
+  }
+
+  // Capture phase on window: nothing the page or a content script does later can get in front of these.
+  window.addEventListener('click', function (e) {
+    if (!e.isTrusted) note('untrusted click event', e.composedPath ? e.composedPath()[0] : e.target);
+  }, true);
+  window.addEventListener('submit', function (e) {
+    if (!e.isTrusted) note('untrusted submit event', e.target);
+  }, true);
+  ['input', 'change'].forEach(function (type) {
+    window.addEventListener(type, function (e) {
+      var el = e.composedPath ? e.composedPath()[0] : e.target;
+      if (!e.isTrusted) note('untrusted ' + type + ' event', el);
+      remember(el);
+    }, true);
+  });
+
+  setInterval(sweep, 500);
+
+  window.__fixtureDetector = {
+    /** The fixture's own deliberate scripted acts run inside this. */
+    selfAct: function (fn) {
+      selfDepth++;
+      try { return fn(); } finally { selfDepth--; rebaseAll(); }
+    },
+    rebaseAll: rebaseAll,
+    sweep: sweep,
+    /** The harness brackets the one synthetic thing automation cannot avoid: choosing a file. */
+    harnessSynthetic: function (on) { if (!on) rebaseAll(); harnessSynthetic = !!on; },
+    reset: function () { local = []; try { localStorage.removeItem(KEY); } catch (e) {} },
+  };
+  /** Everything noted on this origin since the last reset, across tabs and reloads. */
+  window.__fixtureActedUpon = function () {
+    sweep();
+    try { return JSON.parse(localStorage.getItem(KEY) || '[]'); } catch (e) { return local.slice(); }
+  };
+})();
+</script>
+<link rel="stylesheet" href="/portal/app.css">
+</head>
+<body>
+<div id="app"></div>
+<script src="/portal/app.js"></script>
+</body>
+</html>

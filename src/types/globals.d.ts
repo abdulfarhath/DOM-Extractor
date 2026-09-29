@@ -24,6 +24,15 @@ type DownloadPattern = import('../shared/schema.js').DownloadPattern;
 type RepeatSlot = import('../shared/schema.js').RepeatSlot;
 type OpaqueRegion = import('../shared/schema.js').OpaqueRegion;
 type EntryHint = import('../shared/schema.js').EntryHint;
+type NavInventory = import('../shared/schema.js').NavInventory;
+type NavItem = import('../shared/schema.js').NavItem;
+type ViewGroup = import('../shared/schema.js').ViewGroup;
+type ViewOption = import('../shared/schema.js').ViewOption;
+type ViewState = import('../shared/schema.js').ViewState;
+type ActionDraft = import('../shared/schema.js').ActionDraft;
+type ActionSelectors = import('../shared/schema.js').ActionSelectors;
+type ActionTargetType = import('../shared/schema.js').ActionTargetType;
+type JsonShape = import('../shared/schema.js').JsonShape;
 
 /** Any element we treat as a control (native or ARIA widget). */
 type ControlElement = HTMLElement;
@@ -61,6 +70,8 @@ interface FPLabels {
   resolveLabel(el: Element): { label: string; labelSource: LabelSource };
   cleanText(text: string | null | undefined, max?: number): string;
   textOf(el: Element | null, max?: number): string;
+  /** ARIA-order name from textContent; value holders are named by their label only. Not scrubbed. */
+  accessibleName(el: Element, max?: number): string;
 }
 
 interface FPSelectors {
@@ -91,6 +102,10 @@ interface FPFields {
 
 interface FPLists {
   collect(root: ParentNode): ListPatterns;
+  /** docs/12 B4: which pagination control `el` is; null when it is none. */
+  paginationRoleOf(el: Element): 'next' | 'prev' | 'page' | 'load-more' | null;
+  /** docs/12 B4: `containerSelector` of the nearest table or repeat container around `el`. */
+  listContainerOf(el: Element): string | null;
 }
 
 interface FPDomSnapshot {
@@ -98,10 +113,38 @@ interface FPDomSnapshot {
   snapshot(): Promise<string | null>;
 }
 
+/** docs/12 B3. */
+interface FPNav {
+  collect(root: ParentNode): NavInventory;
+  /** Labels from the menu root down to `el`, inclusive; empty when `el` is not a menu item. */
+  menuPathOf(el: Element): string[];
+  /** True when `el` sits inside a navigation or menu region. */
+  inNav(el: Element): boolean;
+  /** The view group `el` is an option of, by `ViewGroup.name`; null otherwise. */
+  viewGroupOf(el: Element, inventory?: NavInventory): string | null;
+  /** View state from an inventory plus the current pagination indicators. */
+  viewState(inventory: NavInventory, lists: ListPatterns): ViewState;
+  /** docs/12 B1: pathname plus the fragment's path part, scrubbed. */
+  route(): string;
+  /** docs/12 B1: parameter names only. */
+  queryKeys(): string[];
+  /** Path plus fragment path of an href, scrubbed; null for scripted or empty hrefs. */
+  cleanHref(href: string | null): string | null;
+  /** Remembers the menu items present now when a mutation batch touched navigation (overlay menus). */
+  noteMutations(records: MutationRecord[]): void;
+  /** Sorted selectors of the popup menus and nav <details> open right now; '' when none. */
+  openKey(): string;
+}
+
 interface FPObserveOptions {
-  onTrigger(trigger: string): void;
+  /** `action` is present for user clicks and changes (docs/12 B4). */
+  onTrigger(trigger: string, action?: ActionDraft): void;
   /** Called once when the mutation breaker trips, with the cooldown end time. */
   onThrottle(untilEpochMs: number): void;
+  /** docs/12 B4: the owner of the danger-word list decides; absent means nothing is flagged. */
+  isDanger?(text: string, el: Element): boolean;
+  /** docs/12 B4: view key of the last state built, for `ActionDraft.viewKey`. */
+  viewKey?(): string;
 }
 
 interface FPObserve {
@@ -121,6 +164,7 @@ interface FPNamespace {
   lists: FPLists;
   domSnapshot: FPDomSnapshot;
   observe: FPObserve;
+  nav: FPNav;
 }
 
 interface Window {
@@ -134,4 +178,9 @@ type FPNetMessage = { __fp: 'net'; entry: NetDraft };
 type FPNavMessage = { __fp: 'nav'; kind: string };
 type FPFrameworkMessage = { __fp: 'framework'; info: Partial<FrameworkInfo> };
 type FPDetectRequest = { __fp: 'detect' };
-type FPWindowMessage = FPNetMessage | FPNavMessage | FPFrameworkMessage | FPDetectRequest;
+/** docs/12 B5: isolated world → MAIN world, sent after the consent gate and on every change. */
+type FPConfigMessage = { __fp: 'config'; keepBodies: 'shape' | 'full' };
+/** docs/12 B6: MAIN world → isolated world. */
+type FPBlobMessage = { __fp: 'blob'; mime: string; size: number; at: string };
+type FPOpenMessage = { __fp: 'open'; url: string | null; target: string | null; at: string };
+type FPWindowMessage = FPNetMessage | FPNavMessage | FPFrameworkMessage | FPDetectRequest | FPConfigMessage | FPBlobMessage | FPOpenMessage;

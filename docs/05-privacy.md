@@ -62,6 +62,10 @@ Aadhaar, DIN/DPIN, GSTIN, IFSC and Indian passport shapes. Other packs may be
 added the same way later — one file, one exported array of `{name, pattern,
 replacement}`.
 
+DOM snapshots get the same pass: every text node, and every `title`, `alt`,
+`aria-label` and `placeholder` value, is pattern-scrubbed in the clone
+(inlined shadow roots included) before it is serialised.
+
 Names and addresses cannot be regexed. The manifest, the summary and the brief all
 state plainly that bodies need a human read before the export leaves the machine.
 Never claim the output is anonymised.

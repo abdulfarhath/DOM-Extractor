@@ -21,6 +21,9 @@
 }
 
 * { box-sizing: border-box; }
+/* Several blocks set their own display, which would otherwise beat the hidden attribute. */
+[hidden] { display: none !important; }
+:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 html, body { height: 100%; }
 body {
   margin: 0; display: flex; flex-direction: column; min-width: 280px;
@@ -56,8 +59,10 @@ body {
 .blocked-row code { font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* counters */
-.counters { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; padding: 12px 14px; }
-.counter { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 4px; text-align: center; }
+/* Six counters: three across is the most a 320px panel holds without breaking "Network calls" in two. */
+.counters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; padding: 12px 14px; }
+@media (min-width: 560px) { .counters { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
+.counter { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 4px; text-align: center; min-width: 0; }
 .counter .num { display: block; font-family: var(--mono); font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .counter .lbl { display: block; font-size: 11px; color: var(--text-muted); }
 
@@ -69,6 +74,10 @@ body {
 .advanced { grid-column: 1 / -1; font-size: 13px; color: var(--text-muted); }
 .advanced summary { cursor: pointer; }
 .advanced .field { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+.advanced .warning {
+  margin: 2px 0 0; padding: 6px 10px; border: 1px solid var(--border); border-left: 3px solid var(--waiting);
+  border-radius: 8px; background: var(--surface); color: var(--text); font-size: 12px;
+}
 .advanced input[type="text"] {
   width: 100%; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px;
   background: var(--surface); color: var(--text); font-size: 12px;
@@ -93,8 +102,41 @@ body {
 }
 .notice.danger { color: var(--danger); border-color: var(--danger); }
 
+/* Coverage and the feed share one scroll area: two of them stacked in a side panel leave neither enough room to read. */
+/* The floor keeps a few lines readable on a short panel with Advanced open; past that the panel itself scrolls. */
+.scroll { flex: 1 1 auto; min-height: 140px; overflow-y: auto; }
+
+/* coverage */
+.coverage { margin: 0 14px 10px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+.coverage-heading { margin: 0; font-size: inherit; font-weight: inherit; }
+.coverage-toggle {
+  appearance: none; display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 8px 10px; border: 0; border-radius: var(--radius); background: transparent; color: var(--text);
+  font: inherit; font-weight: 600; text-align: left; cursor: pointer;
+}
+.coverage-toggle:focus-visible { outline-offset: -2px; }
+.coverage-caret {
+  flex: none; width: 0; height: 0; border-style: solid; border-width: 4px 0 4px 6px;
+  border-color: transparent transparent transparent var(--text-muted);
+}
+.coverage-toggle[aria-expanded="true"] .coverage-caret { transform: rotate(90deg); }
+.coverage-state { margin-left: auto; font-size: 12px; font-weight: 400; color: var(--text-muted); }
+.coverage-toggle:hover .coverage-state { color: var(--text); }
+.coverage-body { padding: 0 10px 10px; font-size: 13px; overflow-wrap: anywhere; }
+.cov-section + .cov-section { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
+.cov-h { margin: 0 0 4px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
+.cov-label { margin: 6px 0 2px; font-size: 12px; font-weight: 600; color: var(--text-muted); }
+.cov-h + .cov-label { margin-top: 0; }
+.cov-line { margin: 0; }
+.cov-line + .cov-line { margin-top: 4px; }
+.cov-list + .cov-line, .cov-more + .cov-line { margin-top: 6px; }
+.cov-summary { color: var(--text-muted); font-size: 12px; }
+.cov-list { margin: 0; padding-left: 18px; }
+.cov-list li { margin: 2px 0; }
+.cov-more { margin: 2px 0 0; padding-left: 18px; font-size: 12px; color: var(--text-muted); }
+
 /* feed */
-.feed { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 0 14px 10px; }
+.feed { padding: 0 14px 10px; }
 .empty { color: var(--text-muted); font-size: 13px; padding: 8px 2px; }
 .empty p { margin: 0 0 8px; }
 .empty ul { margin: 0; padding-left: 18px; }
@@ -104,6 +146,9 @@ body {
 .row-head { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
 .row-seq { font-family: var(--mono); font-size: 12px; color: var(--text-muted); flex: none; }
 .row-title { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 500; }
+.row-view { margin-top: 2px; font-family: var(--mono); font-size: 12px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row.open .row-view { white-space: normal; overflow-wrap: anywhere; }
+.row-where { overflow-wrap: anywhere; }
 .row-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 2px; font-family: var(--mono); font-size: 12px; color: var(--text-muted); }
 .chip { display: inline-block; padding: 1px 7px; border-radius: 999px; font-family: var(--font); font-size: 11px; font-weight: 600; }
 .chip.err { background: var(--chip-danger-bg); color: var(--danger); }

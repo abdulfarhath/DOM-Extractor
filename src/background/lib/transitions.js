@@ -54,12 +54,33 @@ export function gapBetween(timeline, fromAt, toAt) {
 }
 
 /**
+ * Which page a state is, tolerating states stored before docs/12 B1.
+ * @param {StateRecord} s
+ * @returns {string}
+ */
+export function routeOf(s) {
+  // Same fallback as naming.js routeOf, so stored edges agree with the export.
+  if (typeof s.route === 'string' && s.route) return s.route;
+  return s.pathname || '/';
+}
+
+/**
+ * Which view of its page a state shows; '' for states stored before docs/12 B2.
+ * @param {StateRecord} s
+ * @returns {string}
+ */
+export function viewKeyOf(s) {
+  return s.view && typeof s.view.key === 'string' ? s.view.key : '';
+}
+
+/**
  * @param {StateRecord} from
  * @param {StateRecord} to
  * @param {NetEntry[]} netBetween   entries attributed to `from` before `to` landed
+ * @param {{ actionIds?: string[], actionId?: string|null, viaNewTab?: boolean }} [links]   docs/12 B4; the worker knows these, the states do not
  * @returns {Transition}
  */
-export function buildTransition(from, to, netBetween) {
+export function buildTransition(from, to, netBetween, links = {}) {
   const a = controlIndex(from);
   const b = controlIndex(to);
 
@@ -101,5 +122,10 @@ export function buildTransition(from, to, netBetween) {
     listCountsChanged,
     netCallsBetween: netBetween.map((n) => n.id),
     errorsAppeared: to.errors.filter((e) => !prevErrors.has(e)),
+    actionIds: links.actionIds || [],
+    actionId: links.actionId || null,
+    routeChanged: routeOf(from) !== routeOf(to),
+    viewChanged: viewKeyOf(from) !== viewKeyOf(to),
+    viaNewTab: !!links.viaNewTab,
   };
 }

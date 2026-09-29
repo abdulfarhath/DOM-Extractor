@@ -1,10 +1,11 @@
 /**
- * Export pipeline — docs/03, docs/09 Q14/Q15. One zip under Downloads holding
- * the timestamped folder layout, one package per consented origin. Every
- * artifact is built here and streamed entry by entry to the offscreen
- * document, which compresses it into the archive and mints the single blob:
- * URL for one chrome.downloads call. The states array is the only thing held
- * whole; snapshots stream one key at a time. Progress lives in module memory
+ * Export pipeline — docs/03, docs/09 Q14/Q15, docs/12 B8. One zip under
+ * Downloads holding the timestamped folder layout, one package per consented
+ * origin. Every artifact is built here and streamed entry by entry to the
+ * offscreen document, which compresses it into the archive and mints the
+ * single blob: URL for one chrome.downloads call. The record logs (states,
+ * actions, downloads, net) are held whole; snapshots, screenshots and full
+ * API bodies stream one key at a time. Progress lives in module memory
  * and reaches the panel via GET_STATS.
  */
 import { TOOL_NAME, TOOL_VERSION, TIMING, MSG } from '../../shared/constants.js';
@@ -15,6 +16,11 @@ import { buildFlowMap, buildSelectorsFile } from './flowmap.js';
 import { buildSummary } from './summary.js';
 import { buildBrief } from './brief.js';
 import { buildSkeleton } from './skeleton.js';
+import { buildSiteMap } from './sitemap.js';
+import { buildRoutes } from './routes.js';
+import { buildApiCatalog } from './apicatalog.js';
+import { buildCoverage } from './coverage.js';
+import { buildRecipes } from './recipes.js';
 import { stemFor, exportFolderName, hostSlug } from './naming.js';
 
 /** @typedef {import('../../shared/schema.js').ExportProgress} ExportProgress */
@@ -24,6 +30,12 @@ import { stemFor, exportFolderName, hostSlug } from './naming.js';
 /** @typedef {import('../../shared/schema.js').Transition} Transition */
 /** @typedef {import('../../shared/schema.js').Dependency} Dependency */
 /** @typedef {import('../../shared/schema.js').SessionMeta} SessionMeta */
+/** @typedef {import('../../shared/schema.js').ActionEntry} ActionEntry */
+/** @typedef {import('../../shared/schema.js').DownloadEntry} DownloadEntry */
+/** @typedef {import('../../shared/schema.js').SiteMap} SiteMap */
+/** @typedef {import('../../shared/schema.js').RoutesFile} RoutesFile */
+/** @typedef {import('../../shared/schema.js').ApiCatalog} ApiCatalog */
+/** @typedef {import('../../shared/schema.js').Coverage} Coverage */
 
 const OFFSCREEN_URL = 'src/offscreen/offscreen.html';
 
@@ -200,19 +212,24 @@ const textFile = (text, mime = 'text/markdown') => ({ text, mime });
  * @property {NetEntry[]} net
  * @property {Transition[]} transitions
  * @property {Dependency[]} deps
+ * @property {ActionEntry[]} actions
+ * @property {DownloadEntry[]} downloads
  */
 
 /**
- * Split the session by origin. States carry their origin; net entries are
- * attributed by the page that made the call; edges and deps follow states.
+ * Split the session by origin. States, actions and downloads carry their
+ * origin; net entries are attributed by the page that made the call; edges
+ * and deps follow states.
  * @param {string[]} consented
  * @param {StateRecord[]} states
  * @param {NetEntry[]} net
  * @param {Transition[]} transitions
  * @param {Dependency[]} deps
+ * @param {ActionEntry[]} actions
+ * @param {DownloadEntry[]} downloads
  * @returns {OriginBundle[]}
  */
-function splitByOrigin(consented, states, net, transitions, deps) {
+function splitByOrigin(consented, states, net, transitions, deps, actions, downloads) {
   const all = Array.from(new Set([...consented, ...states.map((s) => s.origin)]));
   return all.map((origin) => {
     const own = states.filter((s) => s.origin === origin);
@@ -223,18 +240,32 @@ function splitByOrigin(consented, states, net, transitions, deps) {
       net: net.filter((n) => origins.originOf(n.pageUrl || '') === origin),
       transitions: transitions.filter((t) => ids.has(t.from) && ids.has(t.to)),
       deps: deps.filter((d) => ids.has(d.stateId)),
+      actions: actions.filter((a) => a && a.origin === origin),
+      downloads: downloads.filter((d) => d && d.origin === origin),
     };
   });
 }
+
+/**
+ * The derived files of one package. Built before anything is packed so the
+ * manifest can count them.
+ * @typedef {Object} Derived
+ * @property {SiteMap} siteMap
+ * @property {RoutesFile} routes
+ * @property {ApiCatalog} catalog
+ * @property {Coverage} coverage
+ */
 
 /**
  * @param {OriginBundle} b
  * @param {SessionMeta} meta
  * @param {string[]} allOrigins
  * @param {number} listPatterns
+ * @param {Derived|null} derived
+ * @param {{ written: number, missing: number }} bodies   full bodies packed and not found
  * @returns {ExportManifest}
  */
-function manifestFor(b, meta, allOrigins, listPatterns) {
+function manifestFor(b, meta, allOrigins, listPatterns, derived, bodies) {
   /** @type {Map<string, { origin: string, framework: string, version: string|null }>} */
   const fws = new Map();
   for (const s of b.states) {
@@ -244,6 +275,7 @@ function manifestFor(b, meta, allOrigins, listPatterns) {
   }
   const blocked = new Set();
   for (const s of b.states) for (const o of s.blockedFrames || []) blocked.add(o);
+  const d = meta.degraded;
   return {
     tool: TOOL_NAME,
     version: TOOL_VERSION,
@@ -259,38 +291,115 @@ function manifestFor(b, meta, allOrigins, listPatterns) {
       listPatterns,
       transitions: b.transitions.length,
       dependencies: b.deps.length,
+      actions: b.actions.length,
+      downloads: b.downloads.length,
+      pages: derived ? derived.siteMap.pages.length : 0,
+      endpoints: derived ? derived.catalog.endpoints.length : 0,
     },
     redaction: {
       packs: meta.packs,
       fieldValues: 'redacted at capture',
       domValues: 'redacted at capture',
-      bodies: 'pattern-scrubbed, NOT guaranteed clean',
+      bodies: bodies.written
+        ? 'pattern-scrubbed, NOT guaranteed clean; network.har holds 4000 characters per body, api/bodies/ holds full bodies'
+        : 'pattern-scrubbed, NOT guaranteed clean',
+      apiShapes: 'shapes only (key names, types, lengths, enum-like values); key names and enum values scrubbed at capture',
+      downloads: 'file names never stored (nameShape only); URLs scrubbed without query values; file contents never read',
     },
+    // What this package holds, not only what the switch said at the end:
+    // bodies kept before it was switched off are still exported.
+    keepBodies: meta.keepBodies === 'full' || bodies.written > 0 ? 'full' : 'shape',
     blockedFrames: Array.from(blocked),
     degraded: meta.degraded,
     warnings: [
       'Network response bodies are kept for reference data. Review before sharing.',
+      ...(bodies.written ? [`api/bodies/ holds ${bodies.written} full API response bodies. Names, addresses and free text in them cannot be scrubbed automatically. Read them before sharing.`] : []),
+      ...(bodies.missing ? [`${bodies.missing} full bodies were flagged but no longer in storage; their hasFullBody is false in this export.`] : []),
       'Screenshots are orientation only; selectors come from states/ and flow-map.json.',
       ...(blocked.size ? ['Some embedded frames were not recorded (blockedFrames). The capture has known blind spots.'] : []),
-      ...(meta.degraded.screenshots || meta.degraded.snapshots || meta.degraded.netTrimmed || meta.degraded.statesRefused ? ['Storage degradation occurred during the session; see degraded.'] : []),
+      ...(d.screenshots || d.snapshots || d.bodiesDropped || d.netTrimmed || d.statesRefused ? ['Storage degradation occurred during the session; see degraded.'] : []),
     ],
     harNote: 'HAR 1.2 shaped, reconstructed from fetch/XHR wrappers. Timings approximate; browser-added request headers absent.',
   };
 }
 
+/**
+ * Builders are pure and written not to throw, but one that does must cost
+ * its own file, not the user's whole export.
+ * @template T
+ * @param {string} what
+ * @param {() => T} build
+ * @param {() => T} fallback
+ * @param {string[]} problems   collects what went wrong, for the warning line
+ * @returns {T}
+ */
+function attempt(what, build, fallback, problems) {
+  try {
+    return build();
+  } catch (e) {
+    console.warn('[flowprint] export builder failed:', what, errText(e));
+    problems.push(what);
+    return fallback();
+  }
+}
+
+/**
+ * @param {OriginBundle} b
+ * @param {string[]} problems
+ * @returns {Derived}
+ */
+function deriveFiles(b, problems) {
+  const now = () => new Date().toISOString();
+  // Order matters: the site map names the pages and endpoints every later file refers to.
+  const catalog = attempt('api-catalog.json', () => buildApiCatalog(b.net, b.states, b.actions, b.origin), () => ({ generatedAt: now(), origin: b.origin, endpoints: [] }), problems);
+  const siteMap = attempt(
+    'site-map.json',
+    () => buildSiteMap(b.states, b.actions, b.transitions, b.downloads, b.net, b.origin),
+    () => ({ generatedAt: now(), origin: b.origin, entryStateId: null, menu: [], pages: [] }),
+    problems,
+  );
+  const routes = attempt(
+    'routes.json',
+    () => buildRoutes(b.states, b.actions, b.transitions, siteMap, b.origin),
+    () => ({ generatedAt: now(), origin: b.origin, entryStateId: null, entryRoute: null, recipes: [] }),
+    problems,
+  );
+  const coverage = attempt(
+    'coverage.json',
+    () => buildCoverage(siteMap, b.states, b.actions, b.downloads, b.origin),
+    () => ({
+      generatedAt: now(),
+      origin: b.origin,
+      totals: { menuItems: 0, menuVisited: 0, pages: 0, viewOptions: 0, viewOptionsVisited: 0, lists: 0, listsPaged: 0, downloads: 0 },
+      unvisitedMenu: [],
+      pages: [],
+      hints: [],
+    }),
+    problems,
+  );
+  return { siteMap, routes, catalog, coverage };
+}
+
+/** Entries every per-origin package holds besides states, dom, screens and bodies. */
+const FIXED_FILES = 14;
+
 async function doExport() {
   let failed = 0;
+  /** @type {string[]} */
+  const problems = [];
   try {
-    const { meta, states, net, transitions, deps, consented } = await store.enqueue(async () => ({
+    const { meta, states, net, transitions, deps, actions, downloads, consented } = await store.enqueue(async () => ({
       meta: await store.getMeta(),
       states: await store.getStates(),
       net: await store.getNet(),
       transitions: await store.getTransitions(),
       deps: await store.getDeps(),
+      actions: await store.getActions(),
+      downloads: await store.getDownloads(),
       consented: await origins.listOrigins(),
     }));
 
-    const bundles = splitByOrigin(consented, states, net, transitions, deps);
+    const bundles = splitByOrigin(consented, states, net, transitions, deps, actions, downloads);
     const now = new Date();
     const multi = bundles.length > 1;
     // The zip unpacks to the same timestamped folder the files used to be written into.
@@ -299,7 +408,10 @@ async function doExport() {
 
     // Plan the entry count up front so the progress line is honest.
     let total = bundles.length ? 0 : 1;
-    for (const b of bundles) total += 7 + b.states.length + b.states.filter((s) => s.domRef).length + b.states.filter((s) => s.screenshotRef).length;
+    for (const b of bundles) {
+      total += FIXED_FILES + b.states.length + b.states.filter((s) => s.domRef).length + b.states.filter((s) => s.screenshotRef).length;
+      total += b.net.filter((n) => n.hasFullBody).length;
+    }
     if (multi) total += 1;
     progress.total = total;
 
@@ -308,7 +420,7 @@ async function doExport() {
 
     if (!bundles.length) {
       // Empty session: still a valid package.
-      const empty = manifestFor({ origin: '', states: [], net: [], transitions: [], deps: [] }, meta, [], 0);
+      const empty = manifestFor({ origin: '', states: [], net: [], transitions: [], deps: [], actions: [], downloads: [] }, meta, [], 0, null, { written: 0, missing: 0 });
       if (!(await addFile(`${root}/manifest.json`, json(empty)))) failed++;
     }
 
@@ -319,17 +431,65 @@ async function doExport() {
 
     for (const b of bundles) {
       const dir = multi ? `${root}/${hostSlug(b.origin)}` : root;
-      const map = buildFlowMap(b.states, b.deps, b.transitions, meta.timeline, b.origin);
-      const selectors = buildSelectorsFile(map);
-      const manifest = manifestFor(b, meta, bundles.map((x) => x.origin), map.lists.length);
 
-      if (!(await addFile(`${dir}/manifest.json`, json(manifest)))) failed++;
-      if (!(await addFile(`${dir}/AUTOMATION-BRIEF.md`, textFile(buildBrief(b.states, map, meta, b.net))))) failed++;
-      if (!(await addFile(`${dir}/SUMMARY.md`, textFile(buildSummary(b.states, map, meta, b.net.length))))) failed++;
-      if (!(await addFile(`${dir}/flow-map.json`, json(map)))) failed++;
-      if (!(await addFile(`${dir}/selectors.json`, json(selectors)))) failed++;
-      if (!(await addFile(`${dir}/playwright-skeleton.ts`, textFile(buildSkeleton(b.states, map, selectors), 'text/plain')))) failed++;
-      if (!(await addFile(`${dir}/network.har`, json(buildHar(b.net))))) failed++;
+      // ---- full bodies first, one at a time: a flag with no body behind it
+      // is cleared before any file says hasFullBody, so every file agrees.
+      /** @type {string[]} */
+      const bodyIds = [];
+      /** @type {Set<string>} */
+      const missing = new Set();
+      for (const n of b.net) {
+        if (!n.hasFullBody) continue;
+        const body = await store.getNetBody(n.id);
+        if (body == null) {
+          missing.add(n.id);
+          progress.current++;
+          continue;
+        }
+        if (await addFile(`${dir}/api/bodies/${n.id}.json`, { text: body, mime: 'application/json' })) bodyIds.push(n.id);
+        else {
+          missing.add(n.id);
+          failed++;
+        }
+      }
+      if (missing.size) b.net = b.net.map((n) => (missing.has(n.id) ? { ...n, hasFullBody: false } : n));
+      // The prose describes what is in the folder, not what the switch said.
+      /** @type {SessionMeta} */
+      const bundleMeta = { ...meta, keepBodies: bodyIds.length ? 'full' : 'shape' };
+
+      const map = attempt('flow-map.json', () => buildFlowMap(b.states, b.deps, b.transitions, meta.timeline, b.origin), () => ({ generatedAt: now.toISOString(), origin: b.origin, framework: 'plain', pages: [], controls: [], lists: [], dependencies: [], transitions: b.transitions, timeline: meta.timeline }), problems);
+      const selectors = attempt('selectors.json', () => buildSelectorsFile(map), () => ({ selectors: {}, fallbacks: {}, shadowPaths: {} }), problems);
+      const derived = deriveFiles(b, problems);
+      const { siteMap, routes, catalog, coverage } = derived;
+      const manifest = manifestFor(b, meta, bundles.map((x) => x.origin), map.lists.length, derived, { written: bodyIds.length, missing: missing.size });
+      const extras = { siteMap, routes, catalog, coverage, actions: b.actions, downloads: b.downloads };
+
+      /** @type {[string, () => { text: string, mime: string }][]} */
+      const files = [
+        ['manifest.json', () => json(manifest)],
+        ['AUTOMATION-BRIEF.md', () => textFile(buildBrief(b.states, map, bundleMeta, b.net, extras))],
+        ['RECIPES.md', () => textFile(buildRecipes(siteMap, routes, catalog, coverage, b.downloads, { actions: b.actions, lists: map.lists, fullBodies: bodyIds }))],
+        ['SUMMARY.md', () => textFile(buildSummary(b.states, map, bundleMeta, b.net.length, extras))],
+        ['site-map.json', () => json(siteMap)],
+        ['routes.json', () => json(routes)],
+        ['api-catalog.json', () => json(catalog)],
+        ['coverage.json', () => json(coverage)],
+        ['actions.json', () => json(b.actions)],
+        ['downloads.json', () => json(b.downloads)],
+        ['flow-map.json', () => json(map)],
+        ['selectors.json', () => json(selectors)],
+        ['playwright-skeleton.ts', () => textFile(buildSkeleton(b.states, map, selectors, { siteMap, routes, actions: b.actions }), 'text/plain')],
+        ['network.har', () => json(buildHar(b.net))],
+      ];
+      for (const [name, build] of files) {
+        const payload = attempt(name, build, () => null, problems);
+        if (!payload) {
+          progress.current++;
+          failed++;
+          continue;
+        }
+        if (!(await addFile(`${dir}/${name}`, payload))) failed++;
+      }
 
       for (const s of b.states) {
         if (!(await addFile(`${dir}/states/${stemFor(s)}.json`, json(s)))) failed++;
@@ -356,7 +516,11 @@ async function doExport() {
       }
     }
 
-    if (failed) progress.warning = `${failed} of ${progress.total} entries could not be packed and were skipped`;
+    /** @type {string[]} */
+    const notes = [];
+    if (failed) notes.push(`${failed} of ${progress.total} entries could not be packed and were skipped`);
+    if (problems.length) notes.push(`could not build ${Array.from(new Set(problems)).join(', ')}`);
+    if (notes.length) progress.warning = notes.join('; ');
     await downloadZip(`${root}.zip`);
   } catch (e) {
     progress.error = errText(e);

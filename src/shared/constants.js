@@ -7,7 +7,7 @@
  */
 
 export const TOOL_NAME = 'Flowprint';
-export const TOOL_VERSION = '1.0.0';
+export const TOOL_VERSION = '1.1.0';
 
 /** Storage keys. Per-state keys take a suffix: `fp:dom:<stateId>`. */
 export const KEYS = Object.freeze({
@@ -18,6 +18,9 @@ export const KEYS = Object.freeze({
   TRANSITIONS: 'fp:transitions',
   DEPS: 'fp:deps',
   TABS: 'fp:tabs',
+  ACTIONS: 'fp:actions',
+  DOWNLOADS: 'fp:downloads',
+  NETBODY_PREFIX: 'fp:netbody:',
   QUEUE: 'fp:queue',
   LOCK: 'fp:lock',
   DOM_PREFIX: 'fp:dom:',
@@ -47,6 +50,23 @@ export const CAPS = Object.freeze({
   REQUEST_BODY_CHARS: 2000,
   RESPONSE_BODY_CHARS: 4000,
   PANEL_ROWS: 60,
+  // docs/12
+  ACTIONS: 3000,
+  DOWNLOAD_LOG: 500,
+  MENU_ITEMS: 300,
+  VIEW_GROUPS: 30,
+  VIEW_OPTIONS: 40,
+  NAV_TEXT: 80,
+  RESPONSE_READ_CHARS: 2000000,
+  FULL_BODY_CHARS: 1000000,
+  SHAPE_CHARS: 12000,
+  SHAPE_DEPTH: 8,
+  SHAPE_KEYS: 80,
+  SHAPE_ARRAY_SAMPLE: 25,
+  ENUM_MIN_SEEN: 5,
+  ENUM_MAX_DISTINCT: 8,
+  ENUM_VALUE_CHARS: 40,
+  HINTS: 30,
   TIMELINE: 200,
 });
 
@@ -69,6 +89,12 @@ export const TIMING = Object.freeze({
   LOCK_STALE_MS: 5000,
   /** Window after a change:<key> trigger in which a follow-on counts as a dependency. */
   DEPENDENCY_WINDOW_MS: 2500,
+  /** docs/12 B5: a call belongs to the last action in its tab when it starts within this window. */
+  ACTION_NET_WINDOW_MS: 5000,
+  /** docs/12 B6: a blob/data download belongs to a consented tab that acted within this window. */
+  ACTION_DOWNLOAD_WINDOW_MS: 15000,
+  /** docs/12 B9: coverage refresh interval in the panel. */
+  COVERAGE_POLL_MS: 5000,
   /** Side panel poll interval. */
   PANEL_POLL_MS: 1500,
   /** Q15: the zip download taking longer than this means a Save dialog is waiting. */
@@ -87,6 +113,9 @@ export const MSG = Object.freeze({
   NET_ENTRY: 'fp:net-entry',
   FRAME_BLOCKED: 'fp:frame-blocked',
   THROTTLED: 'fp:throttled',
+  ACTION: 'fp:action',
+  BLOB_HINT: 'fp:blob-hint',
+  WINDOW_OPEN: 'fp:window-open',
   // worker → content
   CAPTURE_NOW: 'fp:capture-now',
   // panel → worker
@@ -99,6 +128,8 @@ export const MSG = Object.freeze({
   SET_SCREENSHOTS: 'fp:set-screenshots',
   SET_DANGER_WORDS: 'fp:set-danger-words',
   SET_PACKS: 'fp:set-packs',
+  SET_KEEP_BODIES: 'fp:set-keep-bodies',
+  GET_COVERAGE: 'fp:get-coverage',
   EXPORT: 'fp:export',
   CLEAR: 'fp:clear',
   // worker ↔ offscreen (export zip)

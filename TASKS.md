@@ -359,3 +359,34 @@ works through `docs/07-acceptance.md` and answers `QUESTIONS.md` (Q1–Q15).
   `docs/09-resolved.md`, `QUESTIONS.md` (+Q16).
 - Left out: nothing.
 - `npm run check`: pass
+
+## 2026-09-29 — docs/12: navigation, actions, API shapes, downloads, coverage, routes (1.1.0)
+
+- Built: route identity for fragment-routed apps (B1); view identity for tabs,
+  filters and pagination (B2); navigation inventory with collapsed and overlay
+  menus (B3, new `src/content/lib/nav.js`); an action log with replayable
+  selectors, menu paths and new-tab links (B4); JSON request/response shapes
+  and opt-in full bodies (B5); download logging without file names or
+  contents (B6); storage keys and messages (B7); seven new export files —
+  site-map, routes, api-catalog, actions, downloads, coverage, RECIPES.md — and
+  live navigation/table helpers in the skeleton (B8); the side panel's
+  Coverage block, Actions/Downloads counters and "Keep full API responses"
+  switch (B9).
+- Also: DOM snapshots now pattern-scrub page text and attribute text, not
+  only control values; open shadow roots at the top level are serialised;
+  danger words match whole words only ("Pay" yes, "Payments" no).
+- Files: `src/content/{capture.js,lib/nav.js,lib/observe.js,lib/lists.js,
+  lib/labels.js,lib/dom-snapshot.js}`, `src/main-world/hooks.js`,
+  `src/background/{service-worker.js,lib/store.js,lib/transitions.js,
+  lib/har.js,lib/export.js,lib/sitemap.js,lib/routes.js,lib/apicatalog.js,
+  lib/coverage.js,lib/recipes.js,lib/brief.js,lib/summary.js,lib/skeleton.js,
+  lib/narrative.js,lib/naming.js,lib/flowmap.js}`, `src/sidepanel/*`,
+  `src/shared/{schema,constants}.js`, `src/types/globals.d.ts`, docs 02, 03,
+  04, 05, 08, 12, `docs/ITR-RECORDING-CHECKLIST.md`, README.
+- Verification: `tools/e2e/` loads the unpacked extension in headless
+  Chromium, records a fixture portal with trusted input, exports, and checks
+  the zip, including replaying every route in a clean browser. 39 of 39
+  checks pass. This supersedes CLAUDE.md's "do not write tests" for this
+  phase; the harness lives outside `src/` and ships nothing.
+- Left out: live testing against a real portal; the fixture is generic.
+- `npm run check`: pass

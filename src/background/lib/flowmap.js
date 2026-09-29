@@ -1,9 +1,11 @@
 /**
- * flow-map.json and selectors.json — docs/03, docs/09 Q2/Q16, docs/10 A6/A7.
- * The roll-up across all states of one origin: pages, unique controls, list
- * patterns, dependencies and the state graph. `sourceField` is always null;
- * a human binds it to their own data model.
+ * flow-map.json and selectors.json — docs/03, docs/09 Q2/Q16, docs/10 A6/A7,
+ * docs/12 B1. The roll-up across all states of one origin: pages, unique
+ * controls, list patterns, dependencies and the state graph. `sourceField`
+ * is always null; a human binds it to their own data model. "Which page"
+ * means the route (pathname plus fragment path), never the pathname alone.
  */
+import { routeOf, viewKeyOf, pageIdsByRoute } from './naming.js';
 
 /** @typedef {import('../../shared/schema.js').StateRecord} StateRecord */
 /** @typedef {import('../../shared/schema.js').ControlRecord} ControlRecord */
@@ -36,7 +38,7 @@ export function findVaryingIds(states) {
     for (const c of s.controls) {
       if (!c.id) continue;
       if (!c.formControlName && !c.name && !c.label) continue;
-      const g = `${s.pathname}|${c.formControlName}|${c.name}|${norm(c.label)}|${c.type}`;
+      const g = `${routeOf(s)}|${c.formControlName}|${c.name}|${norm(c.label)}|${c.type}`;
       let ids = groups.get(g);
       if (!ids) groups.set(g, (ids = new Set()));
       ids.add(c.id);
@@ -169,16 +171,18 @@ function mergeInto(e, c, stateId, varying) {
 export function buildFlowMap(states, deps, transitions, timeline, origin) {
   const varying = findVaryingIds(states);
   const edgeInto = new Map(transitions.map((t) => [t.to, t]));
+  const pageIds = pageIdsByRoute(states);
 
   // ---- pages
   /** @type {FlowMapPage[]} */
   const pages = states.map((s) => {
     const t = edgeInto.get(s.id);
-    return { stateId: s.id, pathname: s.pathname, title: s.title, reachedBy: t ? `${t.trigger} from ${t.from}` : s.trigger };
+    const route = routeOf(s);
+    return { stateId: s.id, pathname: s.pathname, title: s.title, reachedBy: t ? `${t.trigger} from ${t.from}` : s.trigger, route, viewKey: viewKeyOf(s), pageId: pageIds.get(route) || null };
   });
 
   // ---- controls, A7 collision-aware
-  /** @type {Map<string, Array<{ c: ControlRecord, stateId: string, pathname: string }>>} */
+  /** @type {Map<string, Array<{ c: ControlRecord, stateId: string, route: string }>>} */
   const byKey = new Map();
   // Credential controls are included (docs/11): a consumer needs their
   // selectors to leave them to the human and to wait for what follows.
@@ -186,27 +190,27 @@ export function buildFlowMap(states, deps, transitions, timeline, origin) {
     for (const c of s.controls) {
       const k = effectiveKey(c, varying);
       const arr = byKey.get(k) || [];
-      arr.push({ c, stateId: s.id, pathname: s.pathname });
+      arr.push({ c, stateId: s.id, route: routeOf(s) });
       byKey.set(k, arr);
     }
   }
 
   /** @type {FlowMapControl[]} */
   const controls = [];
-  /** @type {Map<string, string>} state-level key → flow-map key, per pathname */
+  /** @type {Map<string, string>} state-level key → flow-map key, per state */
   const keyLookup = new Map();
   for (const [k, seen] of byKey) {
     /** @type {Map<string, FlowMapControl>} (normLabel|type) → entry */
     const variants = new Map();
-    /** @type {Map<string, string>} variant → first pathname */
+    /** @type {Map<string, string>} variant → first route */
     const firstPath = new Map();
-    for (const { c, stateId, pathname } of seen) {
+    for (const { c, stateId, route } of seen) {
       const v = `${norm(c.label)}|${c.type}`;
       let e = variants.get(v);
       if (!e) {
         e = newEntry(c, k, stateId, '', varying);
         variants.set(v, e);
-        firstPath.set(v, pathname);
+        firstPath.set(v, route);
       } else mergeInto(e, c, stateId, varying);
     }
     if (variants.size === 1) {

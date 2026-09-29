@@ -19,6 +19,19 @@ import { KEYS, CAPS, TIMING, DEFAULT_DANGER_WORDS } from '../../shared/constants
 /** @typedef {import('../../shared/schema.js').ScreenshotJob} ScreenshotJob */
 /** @typedef {import('../../shared/schema.js').Degraded} Degraded */
 /** @typedef {import('../../shared/schema.js').TimelineEvent} TimelineEvent */
+/** @typedef {import('../../shared/schema.js').ActionDraft} ActionDraft */
+/** @typedef {import('../../shared/schema.js').ActionEntry} ActionEntry */
+/** @typedef {import('../../shared/schema.js').DownloadEntry} DownloadEntry */
+/** @typedef {import('../../shared/schema.js').OpenedFrom} OpenedFrom */
+
+/**
+ * Browser download id → `dl_` id, for downloads still in progress. The
+ * browser reports progress by its own id and a DownloadEntry has no room for
+ * it, so the link is kept beside the log rather than in it (A4: it has to
+ * outlive the worker). Starts with `fp:` so Clear session wipes it.
+ */
+const DOWNLOAD_MAP_KEY = KEYS.PREFIX + 'dlmap';
+const DOWNLOAD_MAP_MAX = 50;
 
 /** @type {Promise<unknown>} */
 let chain = Promise.resolve();
@@ -100,7 +113,7 @@ export function enqueue(fn) {
 
 /** @returns {Degraded} */
 export function freshDegraded() {
-  return { screenshots: false, snapshots: false, netTrimmed: false, statesRefused: false };
+  return { screenshots: false, snapshots: false, bodiesDropped: false, netTrimmed: false, statesRefused: false };
 }
 
 /** @returns {SessionMeta} */
@@ -118,6 +131,11 @@ function defaultMeta() {
     domCount: 0,
     screenshotCount: 0,
     listPatternCount: 0,
+    keepBodies: 'shape',
+    actionSeq: 0,
+    actionCount: 0,
+    downloadSeq: 0,
+    downloadCount: 0,
     timeline: [],
     degraded: freshDegraded(),
     blockedFrames: {},
@@ -125,11 +143,18 @@ function defaultMeta() {
   };
 }
 
-/** @returns {Promise<SessionMeta>} */
+/**
+ * Meta written by an older version lacks the docs/12 fields; the defaults
+ * fill them in, so a session survives an update of the extension.
+ * @returns {Promise<SessionMeta>}
+ */
 export async function getMeta() {
   const m = /** @type {Partial<SessionMeta>|undefined} */ (await get(KEYS.META));
   const d = defaultMeta();
-  return { ...d, ...(m || {}), degraded: { ...d.degraded, ...((m && m.degraded) || {}) } };
+  const meta = { ...d, ...(m || {}), degraded: { ...d.degraded, ...((m && m.degraded) || {}) } };
+  // Anything but an explicit 'full' is the safe default.
+  if (meta.keepBodies !== 'full') meta.keepBodies = 'shape';
+  return meta;
 }
 
 /**
@@ -160,9 +185,30 @@ export async function appendTimeline(type) {
 
 // ---------------------------------------------------------------- states
 
+/**
+ * States stored before docs/12 have no route, view, navigation or action
+ * list. They are completed here, on the way out, so no reader has to know:
+ * the route falls back to the pathname and everything else to empty.
+ * @param {StateRecord} s
+ * @returns {StateRecord}
+ */
+function completeState(s) {
+  if (typeof s.route === 'string' && s.view && s.nav && Array.isArray(s.actionIds) && Array.isArray(s.queryKeys) && s.openedFrom !== undefined) return s;
+  return {
+    ...s,
+    route: typeof s.route === 'string' ? s.route : s.pathname || '',
+    queryKeys: Array.isArray(s.queryKeys) ? s.queryKeys : [],
+    view: s.view || { key: '', active: [] },
+    nav: s.nav || { menus: [], viewGroups: [], breadcrumbs: [] },
+    actionIds: Array.isArray(s.actionIds) ? s.actionIds : [],
+    openedFrom: s.openedFrom || null,
+  };
+}
+
 /** @returns {Promise<StateRecord[]>} */
 export async function getStates() {
-  return /** @type {StateRecord[]} */ ((await get(KEYS.STATES)) || []);
+  const list = /** @type {StateRecord[]} */ ((await get(KEYS.STATES)) || []);
+  return list.map(completeState);
 }
 
 /** @returns {Promise<TabMap>} */
@@ -200,7 +246,29 @@ async function setOrDegrade(writes, meta) {
 }
 
 /**
- * A5: apply the next degradation step. States are never dropped here.
+ * docs/12 B7: removes every stored full body and clears the flag on the
+ * entries that pointed at one.
+ * @param {NetEntry[]|null} net   passed when the caller already holds it
+ * @returns {Promise<{ removed: number, net: NetEntry[]|null }>}
+ */
+async function dropNetBodies(net) {
+  const keys = (await allKeys()).filter((k) => k.startsWith(KEYS.NETBODY_PREFIX));
+  if (!keys.length) return { removed: 0, net };
+  await chrome.storage.local.remove(keys);
+  const list = (net || (await getNet())).map((n) => (n.hasFullBody ? { ...n, hasFullBody: false } : n));
+  try {
+    await set({ [KEYS.NET]: list });
+  } catch {
+    // Storage is full enough that even this failed; the export finds no body
+    // behind the flag and says so.
+  }
+  return { removed: keys.length, net: list };
+}
+
+/**
+ * A5 and docs/12 B7: apply the next degradation step — screenshots,
+ * snapshots, full bodies, network entries, and only then states. States
+ * already stored are never dropped here.
  * @param {SessionMeta} meta
  * @param {NetEntry[]|null} net   passed when the caller already holds it
  * @returns {Promise<{ meta: SessionMeta, net: NetEntry[]|null }>}
@@ -209,13 +277,25 @@ export async function degradeStep(meta, net) {
   const d = { ...meta.degraded };
   if (!d.screenshots) d.screenshots = true;
   else if (!d.snapshots) d.snapshots = true;
-  else if (!d.netTrimmed) {
-    d.netTrimmed = true;
-    const list = net || (await getNet());
-    const trimmed = list.slice(-Math.floor(CAPS.NET / 4));
-    await set({ [KEYS.NET]: trimmed });
-    net = trimmed;
-    meta = { ...meta, netCount: trimmed.length };
+  else if (!d.bodiesDropped || !d.netTrimmed) {
+    let freed = false;
+    if (!d.bodiesDropped) {
+      // From here on no new body is stored either (putNetBody checks the flag).
+      d.bodiesDropped = true;
+      const dropped = await dropNetBodies(net);
+      net = dropped.net;
+      freed = dropped.removed > 0;
+    }
+    // A step that freed nothing would waste the one retry the failed write
+    // gets, so with no bodies to drop the ladder moves straight on.
+    if (!freed) {
+      d.netTrimmed = true;
+      const list = net || (await getNet());
+      const trimmed = list.slice(-Math.floor(CAPS.NET / 4));
+      await set({ [KEYS.NET]: trimmed });
+      net = trimmed;
+      meta = { ...meta, netCount: trimmed.length };
+    }
   } else d.statesRefused = true;
   meta = { ...meta, degraded: d };
   await set({ [KEYS.META]: meta });
@@ -232,9 +312,10 @@ export async function degradeStep(meta, net) {
  * @param {number} tabId
  * @param {number} frameId
  * @param {string[]} blockedFrames
+ * @param {{ actionIds?: string[], openedFrom?: OpenedFrom|null }} [links]   docs/12 B4
  * @returns {Promise<StateRecord|null>}
  */
-export async function addState(draft, dom, tabId, frameId, blockedFrames) {
+export async function addState(draft, dom, tabId, frameId, blockedFrames, links = {}) {
   const meta = await getMeta();
   if (meta.degraded.statesRefused) return null;
   if (meta.degraded.snapshots) dom = null;
@@ -253,6 +334,8 @@ export async function addState(draft, dom, tabId, frameId, blockedFrames) {
     duplicateOf: null,
     blockedFrames,
     netRefs: [],
+    actionIds: links.actionIds || [],
+    openedFrom: links.openedFrom || null,
   };
 
   const states = await getStates();
@@ -329,37 +412,225 @@ export async function updateState(id, patch) {
 
 // ------------------------------------------------------------------- net
 
+/**
+ * Entries stored before docs/12 lack the shape and download fields.
+ * @param {NetEntry} n
+ * @returns {NetEntry}
+ */
+function completeNet(n) {
+  if (typeof n.hasFullBody === 'boolean' && n.requestShape !== undefined && n.actionIdAtTime !== undefined) return n;
+  return {
+    ...n,
+    requestShape: n.requestShape || null,
+    responseShape: n.responseShape || null,
+    responseSize: typeof n.responseSize === 'number' ? n.responseSize : -1,
+    bodyTruncated: !!n.bodyTruncated,
+    disposition: n.disposition || null,
+    dispositionExt: n.dispositionExt || null,
+    isDownload: !!n.isDownload,
+    actionIdAtTime: n.actionIdAtTime || null,
+    hasFullBody: !!n.hasFullBody,
+  };
+}
+
 /** @returns {Promise<NetEntry[]>} */
 export async function getNet() {
-  return /** @type {NetEntry[]} */ ((await get(KEYS.NET)) || []);
+  const list = /** @type {NetEntry[]} */ ((await get(KEYS.NET)) || []);
+  return list.map(completeNet);
 }
 
 /**
+ * The full body, when the draft carries one, never goes into `fp:net`: it is
+ * stored under its own key, and only while the user has asked for full
+ * bodies and the ladder has not dropped them.
  * @param {NetDraft} draft
  * @param {number} tabId
  * @param {number} frameId
  * @param {string|null} stateIdAtTime
  * @param {boolean} stateIdInferred
+ * @param {string|null} [actionIdAtTime]   docs/12 B5
  * @returns {Promise<NetEntry>}
  */
-export async function addNet(draft, tabId, frameId, stateIdAtTime, stateIdInferred) {
-  const meta = await getMeta();
+export async function addNet(draft, tabId, frameId, stateIdAtTime, stateIdInferred, actionIdAtTime = null) {
+  let meta = await getMeta();
   const seq = meta.netSeq + 1;
+  const id = `net_${pad(seq)}`;
+  const { responseFull, ...rest } = draft;
+  let hasFullBody = false;
+  if (typeof responseFull === 'string' && responseFull) {
+    hasFullBody = await putNetBody(id, responseFull);
+    // A failed body write steps the ladder, which rewrites meta.
+    if (!hasFullBody) meta = await getMeta();
+  }
   /** @type {NetEntry} */
-  const entry = { ...draft, id: `net_${pad(seq)}`, seq, tabId, frameId, stateIdAtTime, stateIdInferred };
+  const entry = { ...rest, id, seq, tabId, frameId, stateIdAtTime, stateIdInferred, actionIdAtTime, hasFullBody };
   const net = await getNet();
   net.push(entry);
   const cap = meta.degraded.netTrimmed ? Math.floor(CAPS.NET / 4) : CAPS.NET;
-  while (net.length > cap) net.shift();
-  await setOrDegrade({ [KEYS.NET]: net, [KEYS.META]: { ...meta, netSeq: seq, netCount: net.length } }, meta);
+  /** @type {string[]} */
+  const doomed = [];
+  while (net.length > cap) {
+    const old = net.shift();
+    if (old && old.hasFullBody) doomed.push(KEYS.NETBODY_PREFIX + old.id);
+  }
+  try {
+    await setOrDegrade({ [KEYS.NET]: net, [KEYS.META]: { ...meta, netSeq: seq, netCount: net.length } }, meta);
+  } catch (e) {
+    // The entry never landed; its body must not be left behind without one.
+    if (hasFullBody) await chrome.storage.local.remove(KEYS.NETBODY_PREFIX + id).catch(() => {});
+    throw e;
+  }
+  if (doomed.length) await chrome.storage.local.remove(doomed);
   return entry;
+}
+
+/**
+ * docs/12 B5: one full, scrubbed response body under `fp:netbody:<netId>`.
+ * Refuses unless full bodies are switched on, and after the ladder dropped
+ * them. Does not touch the entry's `hasFullBody`; `addNet` sets that.
+ * @param {string} netId
+ * @param {string} text
+ * @returns {Promise<boolean>}   true when the body was stored
+ */
+export async function putNetBody(netId, text) {
+  const meta = await getMeta();
+  if (meta.keepBodies !== 'full' || meta.degraded.bodiesDropped) return false;
+  if (typeof text !== 'string' || !text) return false;
+  try {
+    await set({ [KEYS.NETBODY_PREFIX + netId]: text.length > CAPS.FULL_BODY_CHARS ? text.slice(0, CAPS.FULL_BODY_CHARS) : text });
+    return true;
+  } catch (e) {
+    console.warn('[flowprint] body write failed, degrading:', e instanceof Error ? e.message : String(e));
+    await degradeStep(meta, null);
+    return false;
+  }
+}
+
+/**
+ * @param {string} netId
+ * @returns {Promise<string|null>}
+ */
+export async function getNetBody(netId) {
+  const v = await get(KEYS.NETBODY_PREFIX + netId);
+  return typeof v === 'string' ? v : null;
+}
+
+// --------------------------------------------------------------- actions
+
+/** @returns {Promise<ActionEntry[]>} */
+export async function getActions() {
+  return /** @type {ActionEntry[]} */ ((await get(KEYS.ACTIONS)) || []);
+}
+
+/**
+ * docs/12 B4. `resultStateId` stays null until the next state lands in the
+ * same tab and frame.
+ * @param {ActionDraft} draft
+ * @param {number} tabId
+ * @param {number} frameId
+ * @param {string|null} stateIdAtTime
+ * @returns {Promise<ActionEntry>}
+ */
+export async function addAction(draft, tabId, frameId, stateIdAtTime) {
+  const meta = await getMeta();
+  const seq = meta.actionSeq + 1;
+  /** @type {ActionEntry} */
+  const entry = { ...draft, id: `act_${pad(seq)}`, seq, tabId, frameId, stateIdAtTime, resultStateId: null };
+  const list = await getActions();
+  list.push(entry);
+  while (list.length > CAPS.ACTIONS) list.shift();
+  await setOrDegrade({ [KEYS.ACTIONS]: list, [KEYS.META]: { ...meta, actionSeq: seq, actionCount: list.length } }, meta);
+  return entry;
+}
+
+/**
+ * @param {string[]} ids
+ * @param {Partial<ActionEntry>} patch   `id` and `seq` are never changed
+ * @returns {Promise<void>}
+ */
+export async function patchActions(ids, patch) {
+  if (!ids.length) return;
+  const want = new Set(ids);
+  const list = await getActions();
+  let hit = false;
+  for (let i = 0; i < list.length; i++) {
+    if (!want.has(list[i].id)) continue;
+    list[i] = { ...list[i], ...patch, id: list[i].id, seq: list[i].seq };
+    hit = true;
+  }
+  if (hit) await set({ [KEYS.ACTIONS]: list });
+}
+
+// ------------------------------------------------------------- downloads
+
+/** @returns {Promise<DownloadEntry[]>} */
+export async function getDownloads() {
+  return /** @type {DownloadEntry[]} */ ((await get(KEYS.DOWNLOADS)) || []);
+}
+
+/**
+ * docs/12 B6.
+ * @param {Omit<DownloadEntry, 'id'|'seq'>} entry
+ * @returns {Promise<DownloadEntry>}
+ */
+export async function addDownload(entry) {
+  const meta = await getMeta();
+  const seq = meta.downloadSeq + 1;
+  /** @type {DownloadEntry} */
+  const saved = { ...entry, id: `dl_${pad(seq)}`, seq };
+  const list = await getDownloads();
+  list.push(saved);
+  while (list.length > CAPS.DOWNLOAD_LOG) list.shift();
+  await setOrDegrade({ [KEYS.DOWNLOADS]: list, [KEYS.META]: { ...meta, downloadSeq: seq, downloadCount: list.length } }, meta);
+  return saved;
+}
+
+/**
+ * @param {string} id
+ * @param {Partial<DownloadEntry>} patch   `id` and `seq` are never changed
+ * @returns {Promise<void>}
+ */
+export async function patchDownload(id, patch) {
+  const list = await getDownloads();
+  const i = list.findIndex((d) => d.id === id);
+  if (i < 0) return;
+  list[i] = { ...list[i], ...patch, id: list[i].id, seq: list[i].seq };
+  await set({ [KEYS.DOWNLOADS]: list });
+}
+
+/**
+ * Browser download id → `dl_` id for downloads that have not settled.
+ * @returns {Promise<Record<string, string>>}
+ */
+export async function getDownloadMap() {
+  const v = await get(DOWNLOAD_MAP_KEY);
+  return v && typeof v === 'object' ? /** @type {Record<string, string>} */ (v) : {};
+}
+
+/**
+ * @param {Record<string, string>} map   trimmed to the most recent entries
+ * @returns {Promise<void>}
+ */
+export async function setDownloadMap(map) {
+  const keys = Object.keys(map);
+  /** @type {Record<string, string>} */
+  const kept = {};
+  for (const k of keys.slice(-DOWNLOAD_MAP_MAX)) kept[k] = map[k];
+  await set({ [DOWNLOAD_MAP_KEY]: kept });
 }
 
 // ------------------------------------------------------ transitions/deps
 
 /** @returns {Promise<Transition[]>} */
 export async function getTransitions() {
-  return /** @type {Transition[]} */ ((await get(KEYS.TRANSITIONS)) || []);
+  const list = /** @type {Transition[]} */ ((await get(KEYS.TRANSITIONS)) || []);
+  // Edges stored before docs/12 carry no actions; `urlChanged` is the
+  // closest thing they recorded to a route change.
+  return list.map((t) =>
+    Array.isArray(t.actionIds)
+      ? t
+      : { ...t, actionIds: [], actionId: null, routeChanged: !!t.urlChanged, viewChanged: false, viaNewTab: false }
+  );
 }
 
 /** @param {Transition} t */

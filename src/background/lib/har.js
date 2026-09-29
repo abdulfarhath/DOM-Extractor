@@ -8,6 +8,30 @@ import { TOOL_NAME, TOOL_VERSION } from '../../shared/constants.js';
 /** @typedef {import('../../shared/schema.js').NetEntry} NetEntry */
 
 /**
+ * What docs/12 learned about a call, for the entry's `_flowprint` field. HAR
+ * 1.2 allows custom fields as long as their names start with an underscore,
+ * and readers that do not know one ignore it.
+ * @param {NetEntry} n
+ * @returns {Record<string, unknown>}
+ */
+function extrasOf(n) {
+  return {
+    id: n.id,
+    kind: n.kind,
+    stateIdAtTime: n.stateIdAtTime ?? null,
+    actionIdAtTime: n.actionIdAtTime ?? null,
+    requestShape: n.requestShape ?? null,
+    responseShape: n.responseShape ?? null,
+    responseSize: typeof n.responseSize === 'number' ? n.responseSize : -1,
+    bodyTruncated: !!n.bodyTruncated,
+    disposition: n.disposition ?? null,
+    dispositionExt: n.dispositionExt ?? null,
+    isDownload: !!n.isDownload,
+    hasFullBody: !!n.hasFullBody,
+  };
+}
+
+/**
  * @param {string} url
  * @returns {{ name: string, value: string }[]}
  */
@@ -76,6 +100,7 @@ export function buildHar(entries) {
       cache: {},
       timings: { blocked: -1, dns: -1, connect: -1, ssl: -1, send: 0, wait: time, receive: 0 },
       comment,
+      _flowprint: extrasOf(n),
     };
   });
 
@@ -85,7 +110,8 @@ export function buildHar(entries) {
       creator: { name: TOOL_NAME, version: TOOL_VERSION },
       pages: Array.from(pages.values()).map((p) => ({ startedDateTime: p.startedDateTime, id: p.id, title: p.title, pageTimings: { onContentLoad: -1, onLoad: -1 } })),
       entries: harEntries,
-      comment: 'Reconstructed from fetch/XHR wrappers. Timing phases are approximate; browser-added request headers are absent. Bodies are pattern-scrubbed, not anonymised.',
+      comment:
+        'Reconstructed from fetch/XHR wrappers. Timing phases are approximate; browser-added request headers are absent. Bodies are pattern-scrubbed, not anonymised, and cut at a fixed length: `_flowprint` on each entry holds the shape of the whole body, its size before the cut, and the download flags.',
     },
   };
 }

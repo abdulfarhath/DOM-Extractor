@@ -8,6 +8,13 @@
   const MAX_SIBLING = 80;
   const CONTAINER_SEL = '[class*="form-group"], [class*="form-field"], [class*="field"], mat-form-field, [class*="control"], [class*="input-group"]';
   const LABEL_SEL = 'label, [class*="label"], mat-label, legend';
+  const MAX_NAME = 80; // CAPS.NAV_TEXT
+  const NAME_MAX_NODES = 300;
+  const BUTTON_INPUT_RE = /^(button|submit|reset)$/;
+  /** Elements whose content is a value, not a caption. */
+  const VALUE_HOLDER_SEL = 'input, select, textarea, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="searchbox"], [role="combobox"], [role="spinbutton"]';
+  /** Subtrees that never contribute to an element's name. */
+  const NAME_SKIP_SEL = `script, style, template, [aria-hidden="true"], ul, ol, menu, [role="menu"], [role="group"], [role="tree"], .dropdown-menu, mat-icon, .material-icons, [class*="material-symbols"], [class*="badge"], ${VALUE_HOLDER_SEL}`;
 
   /**
    * Collapse whitespace and cap length.
@@ -95,5 +102,73 @@
     return { label: '', labelSource: 'none' };
   };
 
-  window.__FP.labels = { resolveLabel, cleanText, textOf };
+  /**
+   * Text nodes beneath `el`, leaving out what is not part of its name: nested
+   * menus, decorative icons, counters, and anything that holds a value.
+   * Reads textContent, not innerText, so the result does not follow CSS — a
+   * collapsed item is named the same as an open one, whatever text-transform
+   * or display say.
+   * @param {Element} el
+   * @param {number} max
+   * @returns {string}
+   */
+  const ownText = (el, max) => {
+    let out = '';
+    let visited = 0;
+    /** @type {Node|null} */
+    let lastParent = null;
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
+      acceptNode: (node) => (node instanceof Element && node.matches(NAME_SKIP_SEL) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT),
+    });
+    while (visited++ < NAME_MAX_NODES && out.length < max * 2 && walker.nextNode()) {
+      const node = walker.currentNode;
+      if (node.nodeType !== Node.TEXT_NODE || !node.nodeValue) continue;
+      // Frameworks strip the whitespace between elements; put it back.
+      out += (node.parentNode !== lastParent ? ' ' : '') + node.nodeValue;
+      lastParent = node.parentNode;
+    }
+    return cleanText(out, max);
+  };
+
+  /**
+   * Accessible name, in the order role-based locators resolve it:
+   * aria-labelledby, aria-label, own text, title, an inner image's alt.
+   * Anything that holds a value — inputs, selects, editable regions — is
+   * named by its label only; its content never becomes a name.
+   * @param {Element} el
+   * @param {number} [max]
+   * @returns {string}
+   */
+  const accessibleName = (el, max = MAX_NAME) => {
+    const root = rootOf(el);
+    const by = el.getAttribute('aria-labelledby');
+    if (by) {
+      const parts = by.split(/\s+/).map((id) => {
+        const ref = id ? root.getElementById(id) : null;
+        return ref ? ownText(ref, max) : '';
+      });
+      const t = cleanText(parts.filter(Boolean).join(' '), max);
+      if (t) return t;
+    }
+    const aria = cleanText(el.getAttribute('aria-label'), max);
+    if (aria) return aria;
+    const tag = el.tagName;
+    if (tag === 'INPUT') {
+      const type = (el.getAttribute('type') || '').toLowerCase();
+      // A button-type input's value attribute is its caption, written in the markup.
+      const caption = BUTTON_INPUT_RE.test(type) ? cleanText(el.getAttribute('value'), max) : type === 'image' ? cleanText(el.getAttribute('alt'), max) : '';
+      if (caption) return caption;
+    }
+    if (el.matches(VALUE_HOLDER_SEL)) return cleanText(resolveLabel(el).label || el.getAttribute('title'), max);
+    if (tag === 'IMG') return cleanText(el.getAttribute('alt') || el.getAttribute('title'), max);
+    const text = ownText(el, max);
+    if (text) return text;
+    const title = cleanText(el.getAttribute('title'), max);
+    if (title) return title;
+    const inner = el.querySelector('img[alt], [aria-label], [title], svg > title');
+    if (!inner) return '';
+    return cleanText(inner.getAttribute('alt') || inner.getAttribute('aria-label') || inner.getAttribute('title') || inner.textContent, max);
+  };
+
+  window.__FP.labels = { resolveLabel, cleanText, textOf, accessibleName };
 })();

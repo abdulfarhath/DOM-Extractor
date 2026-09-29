@@ -1,4 +1,4 @@
-/* Sanitised DOM snapshot — docs/02 "DOM snapshot", docs/10 A1. Clone, redact,
+/* Sanitised DOM snapshot — docs/02 "DOM snapshot", docs/10 A1. Clone, redact, scrub page text,
    hollow, strip, truncate, gzip, base64. Open shadow roots are serialised as
    declarative `<template shadowrootmode="open">` so the file re-renders them.
    Never touches the live document. Classic script: exposes window.__FP.domSnapshot. */
@@ -10,6 +10,10 @@
   const SHADOW_DEPTH = 10; // CAPS.SHADOW_DEPTH
   const HOLLOW_TAGS = 'script, style, noscript, svg';
   const CONTROL_SEL = 'input, select, textarea, [contenteditable="true"]';
+  /** Attributes whose value is text a person reads. */
+  const TEXT_ATTRS = ['title', 'alt', 'aria-label', 'placeholder'];
+  const TEXT_ATTR_SEL = TEXT_ATTRS.map((a) => `[${a}]`).join(', ');
+  const NON_BLANK_RE = /\S/;
 
   /** @returns {FPNamespace} */
   const ns = () => /** @type {FPNamespace} */ (window.__FP);
@@ -23,6 +27,32 @@
     const doomed = [];
     while (walker.nextNode()) doomed.push(walker.currentNode);
     for (const n of doomed) n.parentNode?.removeChild(n);
+  };
+
+  /**
+   * Rule 4 on page text: every text node and every attribute that carries
+   * human-readable text goes through the redaction packs, so identifiers a
+   * page renders as plain text (table cells, tooltips) never reach the file.
+   * Runs on the clone only. One pass over text nodes, one over elements.
+   * @param {ParentNode & Node} root
+   */
+  const scrubPageText = (root) => {
+    const r = ns().redact;
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      const v = n.nodeValue;
+      if (!v || !NON_BLANK_RE.test(v)) continue;
+      const out = r.scrubText(v);
+      if (out !== v) n.nodeValue = out;
+    }
+    for (const el of root.querySelectorAll(TEXT_ATTR_SEL)) {
+      for (const name of TEXT_ATTRS) {
+        const v = el.getAttribute(name);
+        if (!v) continue;
+        const out = r.scrubText(v);
+        if (out !== v) el.setAttribute(name, out);
+      }
+    }
   };
 
   /**
@@ -127,7 +157,7 @@
   };
 
   /**
-   * Hollow, strip and truncate one tree, then each inlined shadow template's
+   * Hollow, strip, pattern-scrub and truncate one tree, then each inlined shadow template's
    * content (a separate fragment that querySelectorAll does not enter).
    * @param {ParentNode & Node} root
    * @param {number} depth
@@ -135,6 +165,7 @@
   const sanitise = (root, depth) => {
     for (const el of root.querySelectorAll(HOLLOW_TAGS)) el.textContent = '';
     stripComments(root);
+    scrubPageText(root);
     truncateAttributes(root);
     if (depth >= SHADOW_DEPTH) return;
     for (const tpl of root.querySelectorAll('template[shadowrootmode]')) {
@@ -175,7 +206,10 @@
       // clone elements by index, and hollowing changes nothing structural
       // but removing nodes would.
       redactControls(document, clone);
-      inlineShadowRoots(document, clone, 0);
+      // The live root must be the element that was cloned: querySelectorAll
+      // on the document also yields <html>, on the clone it does not, and
+      // the two lists would never pair up.
+      inlineShadowRoots(document.documentElement, clone, 0);
       sanitise(clone, 0);
       const html = '<!DOCTYPE html>\n' + clone.outerHTML;
       return await gzipBase64(html);

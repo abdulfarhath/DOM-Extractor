@@ -182,3 +182,30 @@ adding a question.
   full without it.
 - **Alternative:** accept the doc's single pattern and its two misses.
 - **Answer:**
+
+## Q17 — docs/12: routes replay only the edge's chosen action
+- **Context:** a transition's `actionIds` can include field clicks, select
+  changes and a file-input click made on the way to the next page.
+- **Default chosen:** a route step replays the edge's chosen `actionId`, plus
+  the menu opener it needs when the item sits inside a menu that was closed
+  by the previous step. Form interaction stays out of routes, matching the
+  commented-out fills in the skeleton.
+- **Alternative:** replay every non-danger action of the edge.
+- **Answer:**
+
+## Q18 — docs/12: `.dropdown-item` is a click unless it looks like a select
+- **Context:** Bootstrap-style dropdown menus hold navigation links, but
+  some sites build selects from the same classes.
+- **Default chosen:** a `.dropdown-item` click is a `change` only when the
+  trigger has `aria-haspopup="listbox"`, is a combobox, or sits in a form-field
+  wrapper; otherwise it is a click with a `menuPath`.
+- **Alternative:** the old rule, which recorded every dropdown link as a change.
+- **Answer:**
+
+## Q19 — docs/12: skeleton contains `.click()` in string literals
+- **Context:** hard rule 1 forbids calling `.click()`; a grep audit of `src/`
+  will find it inside `skeleton.js`'s generated Playwright text.
+- **Default chosen:** keep it. Flowprint never executes that text; it is
+  written into `playwright-skeleton.ts` for the consumer.
+- **Alternative:** build the method name at run time to dodge the grep.
+- **Answer:**
